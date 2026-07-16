@@ -157,6 +157,12 @@
 
 <div id="err"></div>
 <div id="hint">PREVIEW จะจำลองรอบเครื่องขึ้น-ลงเองแบบวนซ้ำ เอาไว้ฟังเทียบเสียงตอนจอดรถ ส่วน START จะใช้ความเร็วจริงจาก GPS</div>
+<div id="credit" style="color:#2c4457;font-size:9px;margin-top:16px;text-align:center;">Engine sample: "Car Engine Loop" by qubodup (CC BY 4.0) · "Hover Engine" by peridactyloptrix (CC0), freesound.org</div>
+
+<audio id="engineSample" loop preload="auto"
+  src="https://cdn.freesound.org/previews/147/147242_71257-lq.mp3"></audio>
+<audio id="evSample" loop preload="auto"
+  src="https://cdn.freesound.org/previews/213/213384_2737063-lq.mp3"></audio>
 
 <script>
 // ---------- Sound presets ----------
@@ -168,56 +174,60 @@ const PRESETS = {
     desc: 'หนัก ดุ อเมริกัน',
     cylinders: 8,
     idleRpm: 750,
-    subLevel: 0.55,
-    engineGainLevel: 0.6,
+    subLevel: 0.35,
+    engineGainLevel: 0.08,
     filterBase: 350, filterRange: 2600,
     peakFreqBase: 90, peakFreqRange: 160, peakGain: 9,
-    raspLevel: 0.035, raspFilterBase: 650, raspFilterRange: 1500,
+    raspLevel: 0.02, raspFilterBase: 650, raspFilterRange: 1500,
     rpmMax: 6500,
-    jitter: 0.012
+    jitter: 0.012,
+    sampleRateMin: 0.45, sampleRateMax: 1.7, sampleVolMax: 0.85
   },
   turboI6: {
     name: 'TURBO I6',
     desc: 'สไตล์ M3/M4 จริง',
     cylinders: 6,
     idleRpm: 800,
-    subLevel: 0.32,
-    engineGainLevel: 0.55,
+    subLevel: 0.18,
+    engineGainLevel: 0.06,
     filterBase: 550, filterRange: 3600,
     peakFreqBase: 150, peakFreqRange: 300, peakGain: 7,
-    raspLevel: 0.10, raspFilterBase: 1000, raspFilterRange: 2900,
+    raspLevel: 0.09, raspFilterBase: 1000, raspFilterRange: 2900,
     rpmMax: 7200,
-    jitter: 0.008
+    jitter: 0.008,
+    sampleRateMin: 0.6, sampleRateMax: 2.6, sampleVolMax: 0.8
   },
   evwhine: {
     name: 'EV WHINE',
     desc: 'Taycan Sci-Fi + gearshift',
     cylinders: 0, // no combustion firing — pure motor whine, handled separately
     idleRpm: 800,
-    subLevel: 0.22,
-    engineGainLevel: 0.4,
+    subLevel: 0.15,
+    engineGainLevel: 0.1,
     filterBase: 1100, filterRange: 4600,
     peakFreqBase: 600, peakFreqRange: 2200, peakGain: 3,
-    raspLevel: 0.05, raspFilterBase: 1800, raspFilterRange: 2400,
+    raspLevel: 0.03, raspFilterBase: 1800, raspFilterRange: 2400,
     rpmMax: 9000,
     jitter: 0.001,
     sciFi: true,           // enables FM shimmer layer
     fmDepth: 18,            // Hz of FM modulation depth
     fmRate: 5.5,            // Hz, modulator speed (slow sci-fi shimmer)
-    shiftSpeedKmh: 90       // simulated 2-speed gearbox shift point
+    shiftSpeedKmh: 90,      // simulated 2-speed gearbox shift point
+    sampleRateMin: 0.7, sampleRateMax: 2.4, sampleVolMax: 0.75
   },
   gt3race: {
     name: 'GT3 RACE',
     desc: 'แหลมจัด high-revving',
     cylinders: 6,
     idleRpm: 900,
-    subLevel: 0.22,
-    engineGainLevel: 0.62,
+    subLevel: 0.12,
+    engineGainLevel: 0.07,
     filterBase: 650, filterRange: 5200,
     peakFreqBase: 220, peakFreqRange: 480, peakGain: 10,
     raspLevel: 0.13, raspFilterBase: 1400, raspFilterRange: 3400,
     rpmMax: 8500,
-    jitter: 0.01
+    jitter: 0.01,
+    sampleRateMin: 0.75, sampleRateMax: 3.4, sampleVolMax: 0.9
   }
 };
 
@@ -232,6 +242,8 @@ let raspNoiseSrc, raspGain, raspFilter;
 let jitterLfo, jitterGain;
 let fmLfo, fmGain;
 let hasShifted = false;
+let engineSampleEl = null;
+let evSampleEl = null;
 let running = false;
 let previewMode = false;
 let previewTimer = null;
@@ -381,6 +393,22 @@ function initAudio() {
   masterGain.connect(audioCtx.destination);
   currentRpm = PRESETS[currentPresetKey].idleRpm;
   buildAudioGraph();
+
+  engineSampleEl = document.getElementById('engineSample');
+  engineSampleEl.volume = 0;
+  engineSampleEl.addEventListener('error', () => {
+    document.getElementById('err').textContent = 'โหลดไฟล์เสียงเครื่องยนต์จริงไม่สำเร็จ (เช็คอินเทอร์เน็ต) — จะใช้เสียงสังเคราะห์แทน';
+  });
+  const p = engineSampleEl.play();
+  if (p && p.catch) p.catch(() => {});
+
+  evSampleEl = document.getElementById('evSample');
+  evSampleEl.volume = 0;
+  evSampleEl.addEventListener('error', () => {
+    document.getElementById('err').textContent = 'โหลดไฟล์เสียง EV จริงไม่สำเร็จ (เช็คอินเทอร์เน็ต) — จะใช้เสียงสังเคราะห์แทน';
+  });
+  const p2 = evSampleEl.play();
+  if (p2 && p2.catch) p2.catch(() => {});
 }
 
 function switchPreset(key) {
@@ -428,6 +456,30 @@ function updateAudio(speedKmh, accel) {
   currentRpm = Math.max(preset.idleRpm - 50, Math.min(currentRpm, preset.rpmMax));
 
   const rpmNorm = (currentRpm - preset.idleRpm) / (preset.rpmMax - preset.idleRpm);
+
+  // Drive the real recorded sample for whichever preset is active:
+  // combustion presets use the recorded engine loop, the EV preset uses
+  // a real sci-fi hover/motor recording — both pitch-shifted by RPM.
+  if (engineSampleEl && evSampleEl) {
+    if (preset.cylinders > 0 && preset.sampleRateMin) {
+      const rate = preset.sampleRateMin + rpmNorm * (preset.sampleRateMax - preset.sampleRateMin);
+      engineSampleEl.playbackRate = Math.max(0.25, Math.min(4, rate));
+      const vol = 0.35 + rpmNorm * (preset.sampleVolMax - 0.35) + accelPos * 0.03;
+      engineSampleEl.volume = Math.max(0, Math.min(1, vol));
+      if (engineSampleEl.paused) engineSampleEl.play().catch(() => {});
+      evSampleEl.volume = 0;
+    } else if (preset.cylinders === 0 && preset.sampleRateMin) {
+      const rate = preset.sampleRateMin + rpmNorm * (preset.sampleRateMax - preset.sampleRateMin);
+      evSampleEl.playbackRate = Math.max(0.25, Math.min(4, rate));
+      const vol = 0.3 + rpmNorm * (preset.sampleVolMax - 0.3) + accelPos * 0.02;
+      evSampleEl.volume = Math.max(0, Math.min(1, vol));
+      if (evSampleEl.paused) evSampleEl.play().catch(() => {});
+      engineSampleEl.volume = 0;
+    } else {
+      engineSampleEl.volume = 0;
+      evSampleEl.volume = 0;
+    }
+  }
 
   // Firing frequency: how many combustion pulses per second.
   // 4-stroke engine fires each cylinder once every 2 revolutions, so
