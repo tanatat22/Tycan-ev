@@ -157,12 +157,12 @@
 
 <div id="err"></div>
 <div id="hint">PREVIEW จะจำลองรอบเครื่องขึ้น-ลงเองแบบวนซ้ำ เอาไว้ฟังเทียบเสียงตอนจอดรถ ส่วน START จะใช้ความเร็วจริงจาก GPS</div>
-<div id="credit" style="color:#2c4457;font-size:9px;margin-top:16px;text-align:center;">Engine sample: "Car Engine Loop" by qubodup (CC BY 4.0) · "Hover Engine" by peridactyloptrix (CC0), freesound.org</div>
+<div id="credit" style="color:#2c4457;font-size:9px;margin-top:16px;text-align:center;">Engine sample: "Car Engine Loop" by qubodup (CC BY 4.0) · "ambient spacecraft hum" by AlaskaRobotics (CC0), freesound.org</div>
 
 <audio id="engineSample" loop preload="auto"
   src="https://cdn.freesound.org/previews/147/147242_71257-lq.mp3"></audio>
 <audio id="evSample" loop preload="auto"
-  src="https://cdn.freesound.org/previews/213/213384_2737063-lq.mp3"></audio>
+  src="https://cdn.freesound.org/previews/221/221570_1282865-lq.mp3"></audio>
 
 <script>
 // ---------- Sound presets ----------
@@ -199,21 +199,21 @@ const PRESETS = {
   },
   evwhine: {
     name: 'EV WHINE',
-    desc: 'Taycan Sci-Fi + gearshift',
+    desc: 'มอเตอร์ไฟฟ้า ทุ้มต่ำ',
     cylinders: 0, // no combustion firing — pure motor whine, handled separately
     idleRpm: 800,
-    subLevel: 0.15,
-    engineGainLevel: 0.1,
-    filterBase: 1100, filterRange: 4600,
-    peakFreqBase: 600, peakFreqRange: 2200, peakGain: 3,
-    raspLevel: 0.03, raspFilterBase: 1800, raspFilterRange: 2400,
-    rpmMax: 9000,
+    subLevel: 0.35,
+    engineGainLevel: 0.08,
+    filterBase: 700, filterRange: 2800,
+    peakFreqBase: 300, peakFreqRange: 900, peakGain: 3,
+    raspLevel: 0.02, raspFilterBase: 1200, raspFilterRange: 1600,
+    rpmMax: 7500,
     jitter: 0.001,
     sciFi: true,           // enables FM shimmer layer
-    fmDepth: 18,            // Hz of FM modulation depth
-    fmRate: 5.5,            // Hz, modulator speed (slow sci-fi shimmer)
+    fmDepth: 10,            // Hz of FM modulation depth (reduced — subtler shimmer, less whiny)
+    fmRate: 4.0,            // Hz, modulator speed (slow sci-fi shimmer)
     shiftSpeedKmh: 90,      // simulated 2-speed gearbox shift point
-    sampleRateMin: 0.7, sampleRateMax: 2.4, sampleVolMax: 0.75
+    sampleRateMin: 0.5, sampleRateMax: 1.5, sampleVolMax: 0.85
   },
   gt3race: {
     name: 'GT3 RACE',
@@ -243,7 +243,7 @@ const PRESETS = {
     jitter: 0.01,
     hybrid: true, // both samples play together, blended by speed
     v8RateMin: 0.45, v8RateMax: 1.8, v8VolMax: 0.75,
-    evRateMin: 0.6, evRateMax: 2.6, evVolMax: 0.7
+    evRateMin: 0.5, evRateMax: 1.6, evVolMax: 0.7
   }
 };
 
