@@ -191,16 +191,20 @@ const PRESETS = {
   },
   evwhine: {
     name: 'EV WHINE',
-    desc: 'แบบ Taycan/Tesla',
+    desc: 'Taycan Sci-Fi + gearshift',
     cylinders: 0, // no combustion firing — pure motor whine, handled separately
     idleRpm: 800,
-    subLevel: 0.25,
-    engineGainLevel: 0.45,
-    filterBase: 900, filterRange: 4200,
-    peakFreqBase: 500, peakFreqRange: 1800, peakGain: 4,
-    raspLevel: 0.04, raspFilterBase: 1500, raspFilterRange: 2000,
+    subLevel: 0.22,
+    engineGainLevel: 0.4,
+    filterBase: 1100, filterRange: 4600,
+    peakFreqBase: 600, peakFreqRange: 2200, peakGain: 3,
+    raspLevel: 0.05, raspFilterBase: 1800, raspFilterRange: 2400,
     rpmMax: 9000,
-    jitter: 0.002
+    jitter: 0.001,
+    sciFi: true,           // enables FM shimmer layer
+    fmDepth: 18,            // Hz of FM modulation depth
+    fmRate: 5.5,            // Hz, modulator speed (slow sci-fi shimmer)
+    shiftSpeedKmh: 90       // simulated 2-speed gearbox shift point
   },
   gt3race: {
     name: 'GT3 RACE',
@@ -226,6 +230,8 @@ let engineGain, engineFilter, engineFilter2, engineFilter3;
 let subOsc, subGain;
 let raspNoiseSrc, raspGain, raspFilter;
 let jitterLfo, jitterGain;
+let fmLfo, fmGain;
+let hasShifted = false;
 let running = false;
 let previewMode = false;
 let previewTimer = null;
@@ -263,6 +269,7 @@ function teardownAudioGraph() {
   if (subOsc) { try { subOsc.stop(); } catch(e){} }
   if (raspNoiseSrc) { try { raspNoiseSrc.stop(); } catch(e){} }
   if (jitterLfo) { try { jitterLfo.stop(); } catch(e){} }
+  if (fmLfo) { try { fmLfo.stop(); } catch(e){} }
 }
 
 function buildAudioGraph() {
@@ -324,6 +331,23 @@ function buildAudioGraph() {
   jitterLfo.connect(jitterGain);
   engineOscs.forEach((o) => jitterGain.connect(o.detune));
   jitterLfo.start();
+
+  // sci-fi FM shimmer: a slow modulator riding on the carrier frequency,
+  // giving the "Starship Enterprise" sweeping quality described for the
+  // real Porsche Electric Sport Sound (only used for the EV preset)
+  if (preset.sciFi) {
+    fmLfo = audioCtx.createOscillator();
+    fmLfo.type = 'sine';
+    fmLfo.frequency.value = preset.fmRate;
+    fmGain = audioCtx.createGain();
+    fmGain.gain.value = preset.fmDepth;
+    fmLfo.connect(fmGain);
+    engineOscs.forEach((o) => fmGain.connect(o.frequency));
+    fmLfo.start();
+  } else {
+    fmLfo = null;
+    fmGain = null;
+  }
 
   subOsc = audioCtx.createOscillator();
   subOsc.type = 'sine';
@@ -416,7 +440,29 @@ function updateAudio(speedKmh, accel) {
     baseFreq = 60 + rpmNorm * 500;
   }
 
-  engineOscs.forEach((o) => o.frequency.setTargetAtTime(baseFreq, t, 0.04));
+  // Simulated 2-speed gearbox shift (Taycan-style): a brief pitch dip
+  // right as the car crosses the shift speed threshold, then the whine
+  // resumes climbing — mimics the real shift-feel described by owners.
+  let justCrossedForFreq = false;
+  if (preset.shiftSpeedKmh) {
+    const justCrossed = speed >= preset.shiftSpeedKmh && !hasShifted;
+    if (justCrossed) {
+      justCrossedForFreq = true;
+      hasShifted = true;
+      const dipFreq = baseFreq * 0.6;
+      engineOscs.forEach((o) => {
+        o.frequency.cancelScheduledValues(t);
+        o.frequency.setValueAtTime(baseFreq, t);
+        o.frequency.linearRampToValueAtTime(dipFreq, t + 0.12);
+        o.frequency.linearRampToValueAtTime(baseFreq, t + 0.35);
+      });
+    }
+    if (speed < preset.shiftSpeedKmh - 5) hasShifted = false; // reset with hysteresis
+  }
+
+  if (!justCrossedForFreq) {
+    engineOscs.forEach((o) => o.frequency.setTargetAtTime(baseFreq, t, 0.04));
+  }
   subOsc.frequency.setTargetAtTime(baseFreq * 0.5, t, 0.07);
 
   const filterFreq = preset.filterBase + rpmNorm * preset.filterRange + accelPos * 200;
