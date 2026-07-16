@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>EV Active Sound - Taycan Style</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(ellipse at top, #0d1a2b 0%, #000000 100%);
+    color: #d9f2ff;
+    font-family: -apple-system, "Segoe UI", sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  h1 {
+    font-size: 22px;
+    letter-spacing: 4px;
+    font-weight: 300;
+    color: #6fe3ff;
+    text-shadow: 0 0 12px rgba(111,227,255,0.7);
+    margin-bottom: 4px;
+  }
+  .sub { font-size: 12px; color: #4a6a80; letter-spacing: 2px; margin-bottom: 30px; }
+
+  .ring {
+    width: 220px; height: 220px;
+    border-radius: 50%;
+    border: 2px solid #123047;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    box-shadow: 0 0 40px rgba(111,227,255,0.15) inset;
+  }
+  .ring::before {
+    content: "";
+    position: absolute; inset: -2px;
+    border-radius: 50%;
+    border: 2px solid #6fe3ff;
+    opacity: var(--intensity, 0.1);
+    filter: blur(2px);
+    transition: opacity 0.1s linear;
+  }
+  #speedVal { font-size: 46px; font-weight: 200; color: #eafcff; }
+  #speedUnit { font-size: 13px; color: #4a6a80; letter-spacing: 2px; }
+
+  .bars {
+    display: flex; align-items: flex-end; gap: 3px;
+    height: 50px; margin: 24px 0;
+  }
+  .bars div {
+    width: 4px; background: linear-gradient(to top, #0a2f45, #6fe3ff);
+    border-radius: 2px; height: 4px;
+    transition: height 0.08s ease-out;
+  }
+
+  .stats {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px 30px;
+    font-size: 12px; color: #7fa7bd; margin-top: 10px; width: 260px;
+  }
+  .stats span.label { color: #3d5a6e; }
+  .stats span.val { color: #d9f2ff; float: right; }
+
+  button {
+    margin-top: 30px;
+    padding: 14px 40px;
+    border-radius: 30px;
+    border: 1px solid #6fe3ff;
+    background: transparent;
+    color: #6fe3ff;
+    font-size: 15px;
+    letter-spacing: 2px;
+    -webkit-appearance: none;
+  }
+  button.active {
+    background: #6fe3ff;
+    color: #001521;
+    box-shadow: 0 0 30px rgba(111,227,255,0.6);
+  }
+  #err { color: #ff6b6b; font-size: 11px; margin-top: 14px; max-width: 280px; text-align: center; }
+</style>
+</head>
+<body>
+
+<h1>ACTIVE SOUND</h1>
+<div class="sub">TAYCAN ELECTRIC SPORT MODE</div>
+
+<div class="ring" id="ring">
+  <div>
+    <div id="speedVal" style="text-align:center">0</div>
+    <div id="speedUnit" style="text-align:center">KM/H</div>
+  </div>
+</div>
+
+<div class="bars" id="bars"></div>
+
+<div class="stats">
+  <div><span class="label">ACCEL</span><span class="val" id="accelVal">0.00 m/s²</span></div>
+  <div><span class="label">GPS ACC</span><span class="val" id="gpsAcc">-- m</span></div>
+  <div><span class="label">HEADING</span><span class="val" id="heading">--°</span></div>
+  <div><span class="label">UPDATE</span><span class="val" id="updateRate">-- ms</span></div>
+</div>
+
+<button id="toggleBtn">START</button>
+<div id="err"></div>
+
+<script>
+// ---------- Audio Engine: Porsche Taycan-style synthetic EV whine ----------
+let audioCtx, masterGain;
+let osc1, osc2, oscSub, noiseSrc, noiseGain, whineFilter, subGain;
+let running = false;
+
+function initAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0;
+  masterGain.connect(audioCtx.destination);
+
+  // Layer 1: high whine (turbine-like, characteristic Taycan "synth" tone)
+  osc1 = audioCtx.createOscillator();
+  osc1.type = 'sawtooth';
+  osc1.frequency.value = 180;
+
+  osc2 = audioCtx.createOscillator();
+  osc2.type = 'sine';
+  osc2.frequency.value = 360; // harmonic layer
+
+  // Layer 2: sub bass hum for low-speed EV torque feel
+  oscSub = audioCtx.createOscillator();
+  oscSub.type = 'sine';
+  oscSub.frequency.value = 55;
+  subGain = audioCtx.createGain();
+  subGain.gain.value = 0.25;
+
+  // Filter to shape the whine (bandpass-ish sweep gives "electric" character)
+  whineFilter = audioCtx.createBiquadFilter();
+  whineFilter.type = 'bandpass';
+  whineFilter.frequency.value = 800;
+  whineFilter.Q.value = 1.2;
+
+  const whineGain = audioCtx.createGain();
+  whineGain.gain.value = 0.5;
+
+  osc1.connect(whineFilter);
+  osc2.connect(whineFilter);
+  whineFilter.connect(whineGain);
+  whineGain.connect(masterGain);
+
+  oscSub.connect(subGain);
+  subGain.connect(masterGain);
+
+  // subtle noise layer for "air/motor" texture
+  const bufferSize = audioCtx.sampleRate * 2;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+  noiseSrc = audioCtx.createBufferSource();
+  noiseSrc.buffer = buffer;
+  noiseSrc.loop = true;
+  noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.02;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'highpass';
+  noiseFilter.frequency.value = 2000;
+  noiseSrc.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(masterGain);
+
+  osc1.start();
+  osc2.start();
+  oscSub.start();
+  noiseSrc.start();
+}
+
+// speedKmh: current speed, accel: m/s^2 (signed)
+function updateAudio(speedKmh, accel) {
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  const speed = Math.max(0, speedKmh);
+
+  // base pitch rises with speed (log-ish curve to avoid getting silly at high speed)
+  const speedFactor = Math.min(speed / 160, 1); // normalize 0-1 up to 160km/h
+  const baseFreq = 120 + speedFactor * 520; // 120Hz idle -> ~640Hz at high speed
+
+  // acceleration adds an aggressive rise in pitch + filter opening (kickdown effect)
+  const accelBoost = Math.max(0, accel) * 40; // punchy on acceleration
+  const decelDip = Math.min(0, accel) * 15;   // slight dip / regen tone on braking
+
+  const targetFreq1 = baseFreq + accelBoost + decelDip;
+  const targetFreq2 = targetFreq1 * 2.0;
+  const targetSub = 40 + speedFactor * 60 + Math.max(0, accel) * 10;
+
+  osc1.frequency.setTargetAtTime(targetFreq1, t, 0.08);
+  osc2.frequency.setTargetAtTime(targetFreq2, t, 0.08);
+  oscSub.frequency.setTargetAtTime(targetSub, t, 0.15);
+
+  whineFilter.frequency.setTargetAtTime(600 + speedFactor * 2200 + accelBoost * 3, t, 0.1);
+
+  // volume: idle quiet hum, rises with speed, punches on acceleration
+  const vol = 0.15 + speedFactor * 0.55 + Math.max(0, accel) * 0.05;
+  masterGain.gain.setTargetAtTime(Math.min(vol, 1.0), t, 0.1);
+
+  noiseGain.gain.setTargetAtTime(0.01 + speedFactor * 0.04, t, 0.2);
+
+  updateVisuals(speed, accel, targetFreq1);
+}
+
+function stopAudio() {
+  if (masterGain) masterGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.2);
+}
+
+// ---------- Visualizer bars ----------
+const barsContainer = document.getElementById('bars');
+const BAR_COUNT = 32;
+for (let i = 0; i < BAR_COUNT; i++) {
+  const d = document.createElement('div');
+  barsContainer.appendChild(d);
+}
+function updateVisuals(speed, accel, freq) {
+  const bars = barsContainer.children;
+  const intensity = Math.min(0.15 + speed / 160, 1);
+  for (let i = 0; i < bars.length; i++) {
+    const h = 4 + Math.random() * 46 * intensity + Math.abs(accel) * 8;
+    bars[i].style.height = Math.min(h, 50) + 'px';
+  }
+  document.getElementById('ring').style.setProperty('--intensity', Math.min(intensity, 1));
+  document.getElementById('speedVal').textContent = Math.round(speed);
+  document.getElementById('accelVal').textContent = accel.toFixed(2) + ' m/s²';
+}
+
+// ---------- GPS / Geolocation tracking ----------
+let watchId = null;
+let lastSpeed = 0, lastTime = null;
+
+function startTracking() {
+  if (!('geolocation' in navigator)) {
+    document.getElementById('err').textContent = 'อุปกรณ์นี้ไม่รองรับ Geolocation API';
+    return;
+  }
+  watchId = navigator.geolocation.watchPosition(onPosition, onGeoError, {
+    enableHighAccuracy: true,
+    maximumAge: 0,
+    timeout: 5000
+  });
+}
+
+function onPosition(pos) {
+  const now = performance.now();
+  let speedKmh;
+  if (pos.coords.speed !== null && pos.coords.speed >= 0) {
+    speedKmh = pos.coords.speed * 3.6; // m/s -> km/h
+  } else {
+    speedKmh = lastSpeed; // fallback if device doesn't report speed
+  }
+
+  let accel = 0;
+  if (lastTime !== null) {
+    const dt = (now - lastTime) / 1000;
+    if (dt > 0) {
+      accel = ((speedKmh - lastSpeed) / 3.6) / dt; // m/s^2
+    }
+  }
+
+  document.getElementById('gpsAcc').textContent = (pos.coords.accuracy || 0).toFixed(0) + ' m';
+  document.getElementById('heading').textContent = pos.coords.heading != null ? Math.round(pos.coords.heading) + '°' : '--°';
+  document.getElementById('updateRate').textContent = lastTime ? Math.round(now - lastTime) + ' ms' : '--';
+
+  updateAudio(speedKmh, accel);
+
+  lastSpeed = speedKmh;
+  lastTime = now;
+}
+
+function onGeoError(e) {
+  document.getElementById('err').textContent = 'GPS error: ' + e.message + ' (ต้องอนุญาต location และเปิด HTTPS)';
+}
+
+function stopTracking() {
+  if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+}
+
+// ---------- Button ----------
+const btn = document.getElementById('toggleBtn');
+btn.addEventListener('click', () => {
+  if (!running) {
+    if (!audioCtx) initAudio();
+    audioCtx.resume();
+    masterGain.gain.setTargetAtTime(0.15, audioCtx.currentTime, 0.3);
+    startTracking();
+    running = true;
+    btn.textContent = 'STOP';
+    btn.classList.add('active');
+    document.getElementById('err').textContent = '';
+  } else {
+    stopAudio();
+    stopTracking();
+    running = false;
+    btn.textContent = 'START';
+    btn.classList.remove('active');
+  }
+});
+</script>
+</body>
+</html>
