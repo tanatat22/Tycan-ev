@@ -228,6 +228,22 @@ const PRESETS = {
     rpmMax: 8500,
     jitter: 0.01,
     sampleRateMin: 0.75, sampleRateMax: 3.4, sampleVolMax: 0.9
+  },
+  hybridV8Ev: {
+    name: 'V8 + EV HYBRID',
+    desc: 'ผสม V8 กับ EV ไล่ถึง 180',
+    cylinders: 8,
+    idleRpm: 750,
+    subLevel: 0.25,
+    engineGainLevel: 0.05,
+    filterBase: 400, filterRange: 2400,
+    peakFreqBase: 100, peakFreqRange: 180, peakGain: 6,
+    raspLevel: 0.02, raspFilterBase: 700, raspFilterRange: 1500,
+    rpmMax: 7000,
+    jitter: 0.01,
+    hybrid: true, // both samples play together, blended by speed
+    v8RateMin: 0.45, v8RateMax: 1.8, v8VolMax: 0.75,
+    evRateMin: 0.6, evRateMax: 2.6, evVolMax: 0.7
   }
 };
 
@@ -461,7 +477,20 @@ function updateAudio(speedKmh, accel) {
   // combustion presets use the recorded engine loop, the EV preset uses
   // a real sci-fi hover/motor recording — both pitch-shifted by RPM.
   if (engineSampleEl && evSampleEl) {
-    if (preset.cylinders > 0 && preset.sampleRateMin) {
+    if (preset.hybrid) {
+      // Both real samples play together, each ramping independently with
+      // speed (normalized to 180 km/h) — V8 gives the low-end growl,
+      // EV hover gives the sci-fi top-end layer.
+      const v8Rate = preset.v8RateMin + speedFactor * (preset.v8RateMax - preset.v8RateMin);
+      engineSampleEl.playbackRate = Math.max(0.25, Math.min(4, v8Rate));
+      engineSampleEl.volume = Math.max(0, Math.min(1, 0.3 + speedFactor * (preset.v8VolMax - 0.3) + accelPos * 0.03));
+      if (engineSampleEl.paused) engineSampleEl.play().catch(() => {});
+
+      const evRate = preset.evRateMin + speedFactor * (preset.evRateMax - preset.evRateMin);
+      evSampleEl.playbackRate = Math.max(0.25, Math.min(4, evRate));
+      evSampleEl.volume = Math.max(0, Math.min(1, 0.15 + speedFactor * (preset.evVolMax - 0.15)));
+      if (evSampleEl.paused) evSampleEl.play().catch(() => {});
+    } else if (preset.cylinders > 0 && preset.sampleRateMin) {
       const rate = preset.sampleRateMin + rpmNorm * (preset.sampleRateMax - preset.sampleRateMin);
       engineSampleEl.playbackRate = Math.max(0.25, Math.min(4, rate));
       const vol = 0.35 + rpmNorm * (preset.sampleVolMax - 0.35) + accelPos * 0.03;
