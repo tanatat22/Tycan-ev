@@ -602,13 +602,13 @@ function startPreview() {
     const cycle = phase % 8;
     let simSpeed, simAccel;
     if (cycle < 3) { // accelerate
-      simSpeed = (cycle / 3) * 140;
+      simSpeed = (cycle / 3) * 180;
       simAccel = 4.5;
     } else if (cycle < 5) { // hold speed
-      simSpeed = 140;
+      simSpeed = 180;
       simAccel = 0;
     } else { // lift off / decelerate
-      simSpeed = 140 * (1 - (cycle - 5) / 3);
+      simSpeed = 180 * (1 - (cycle - 5) / 3);
       simAccel = -3.5;
     }
     updateAudio(Math.max(0, simSpeed), simAccel);
