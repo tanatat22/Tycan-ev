@@ -231,7 +231,7 @@ const PRESETS = {
   },
   hybridV8Ev: {
     name: 'V8 + EV HYBRID',
-    desc: 'ผสม V8 กับ EV ไล่ถึง 180',
+    desc: 'ผสม V8 กับ EV ไล่ถึง 140',
     cylinders: 8,
     idleRpm: 750,
     subLevel: 0.25,
@@ -244,6 +244,82 @@ const PRESETS = {
     hybrid: true, // both samples play together, blended by speed
     v8RateMin: 0.45, v8RateMax: 1.8, v8VolMax: 0.75,
     evRateMin: 0.5, evRateMax: 1.6, evVolMax: 0.7
+  },
+  dieselTruck: {
+    name: 'DIESEL TRUCK',
+    desc: 'ทุ้มช้า หนักอึ้ง',
+    cylinders: 6,
+    idleRpm: 650,
+    subLevel: 0.45,
+    engineGainLevel: 0.06,
+    filterBase: 250, filterRange: 1400,
+    peakFreqBase: 70, peakFreqRange: 110, peakGain: 7,
+    raspLevel: 0.05, raspFilterBase: 400, raspFilterRange: 900,
+    rpmMax: 4200,
+    jitter: 0.018,
+    sampleRateMin: 0.35, sampleRateMax: 1.1, sampleVolMax: 0.8
+  },
+  turbo4: {
+    name: 'TURBO 4-BANGER',
+    desc: 'เล็กจี๊ด เสียงหวีดเทอร์โบ',
+    cylinders: 4,
+    idleRpm: 850,
+    subLevel: 0.1,
+    engineGainLevel: 0.05,
+    filterBase: 700, filterRange: 4200,
+    peakFreqBase: 250, peakFreqRange: 500, peakGain: 6,
+    raspLevel: 0.16, raspFilterBase: 1600, raspFilterRange: 3600,
+    rpmMax: 7800,
+    jitter: 0.007,
+    sampleRateMin: 0.8, sampleRateMax: 3.2, sampleVolMax: 0.85
+  },
+  superchargedV8: {
+    name: 'SUPERCHARGED V8',
+    desc: 'V8 + เสียงหวีดซูเปอร์ชาร์จ',
+    cylinders: 8,
+    idleRpm: 800,
+    subLevel: 0.4,
+    engineGainLevel: 0.06,
+    filterBase: 400, filterRange: 2800,
+    peakFreqBase: 100, peakFreqRange: 200, peakGain: 8,
+    raspLevel: 0.03, raspFilterBase: 800, raspFilterRange: 1800,
+    rpmMax: 6800,
+    jitter: 0.012,
+    sciFi: true,          // repurposed as the supercharger whine layer
+    fmDepth: 30,
+    fmRate: 14,           // fast shimmer = supercharger whine pitch
+    sampleRateMin: 0.5, sampleRateMax: 1.9, sampleVolMax: 0.85
+  },
+  evWhisper: {
+    name: 'EV WHISPER',
+    desc: 'เงียบ นุ่ม แทบไม่มีเสียง',
+    cylinders: 0,
+    idleRpm: 800,
+    subLevel: 0.2,
+    engineGainLevel: 0.03,
+    filterBase: 500, filterRange: 1800,
+    peakFreqBase: 200, peakFreqRange: 500, peakGain: 2,
+    raspLevel: 0.01, raspFilterBase: 900, raspFilterRange: 1200,
+    rpmMax: 7000,
+    jitter: 0.0005,
+    sciFi: true,
+    fmDepth: 5,
+    fmRate: 3,
+    sampleRateMin: 0.4, sampleRateMax: 1.0, sampleVolMax: 0.4
+  },
+  rotaryBuzz: {
+    name: 'ROTARY BUZZ',
+    desc: 'หวีดสูง รอบจัด แบบโรตารี่',
+    cylinders: 2, // rotary doesn't map to pistons cleanly — used just for a thin buzzy firing tone
+    idleRpm: 1000,
+    subLevel: 0.08,
+    engineGainLevel: 0.09,
+    filterBase: 900, filterRange: 5600,
+    peakFreqBase: 350, peakFreqRange: 700, peakGain: 9,
+    raspLevel: 0.2, raspFilterBase: 2000, raspFilterRange: 4000,
+    rpmMax: 9000,
+    jitter: 0.02,
+    sampleRateMin: 0.9, sampleRateMax: 3.6, sampleVolMax: 0.85
   }
 };
 
@@ -464,7 +540,7 @@ function updateAudio(speedKmh, accel) {
   const t = audioCtx.currentTime;
   const speed = Math.max(0, speedKmh);
 
-  const speedFactor = Math.min(speed / 180, 1);
+  const speedFactor = Math.min(speed / 140, 1);
   const accelPos = Math.max(0, accel);
   const accelNeg = Math.min(0, accel);
   const targetRpm = preset.idleRpm + speedFactor * (preset.rpmMax - preset.idleRpm) + accelPos * 900 + accelNeg * 300;
@@ -602,13 +678,13 @@ function startPreview() {
     const cycle = phase % 8;
     let simSpeed, simAccel;
     if (cycle < 3) { // accelerate
-      simSpeed = (cycle / 3) * 180;
+      simSpeed = (cycle / 3) * 140;
       simAccel = 4.5;
     } else if (cycle < 5) { // hold speed
-      simSpeed = 180;
+      simSpeed = 140;
       simAccel = 0;
     } else { // lift off / decelerate
-      simSpeed = 180 * (1 - (cycle - 5) / 3);
+      simSpeed = 140 * (1 - (cycle - 5) / 3);
       simAccel = -3.5;
     }
     updateAudio(Math.max(0, simSpeed), simAccel);
