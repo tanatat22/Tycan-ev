@@ -163,7 +163,12 @@ const TAYCAN_DECEL=toKmhCurve(TAYCAN_DECEL_MPH);
 const APP_MAX=150;
 const TAYCAN_CLIP_PEAK_MPH=123;
 const TAYCAN_CLIP_PEAK=TAYCAN_CLIP_PEAK_MPH*MPH_TO_KMH;
-const BMW_PHASE={accel:[0.35,6.75],decel:[6.75,13.85]};
+// The BMW clip is ~11.49s long. The old decel window [6.75, 13.85] ran past
+// the end of the actual audio, so every low-speed position got clamped to the
+// same single point near the file's end — that repeated identical grain
+// content every ~55ms is what caused both the ticking and the "no sound /
+// cut-off" feeling at low speed. Rescaled to fit inside the real duration.
+const BMW_PHASE={accel:[0.35,6.75],decel:[6.75,11.20]};
 
 // BMW now gets its own full 0->150->0 curve, independent of Taycan's timeline.
 // We reuse Taycan's curve *shape* (normalized to 0..1 on both axes) since it's
@@ -238,7 +243,8 @@ function sourcePosition(kmh,buffer){
 function outputGain(kmh){
  const n=speedNorm(kmh);
  // Quiet at standstill, progressively louder, and naturally fades while slowing.
- return muted?0:(.045+.955*Math.pow(n,.82));
+ // Floor raised from .045 -> .09 so low speed is audibly quiet, not silent.
+ return muted?0:(.09+.91*Math.pow(n,.82));
 }
 function updateMotion(ts){
  const delta=targetKmh-lastTarget;
