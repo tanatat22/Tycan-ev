@@ -143,6 +143,7 @@ let selected='taycan',running=false,preview=false,muted=false,watchId=null;
 let targetKmh=0,currentKmh=0,previewDir=1,lastTs=0,lastTarget=0;
 let motion='accel',candidateMotion='accel',candidateSince=null,lastAccelKmhS=0;
 let ctx=null,master=null,analyser=null,scopeData=null,ledData=null,buffers={},grainTimer=null,activeGrains=[];
+let warmthFilter=null,warmDelay=null,warmFeedback=null,warmWet=null;
 
 // The Taycan speed display in the source clip is mph. Keep the sampled curve
 // in its original unit, convert every point to km/hr, then compress the full
@@ -199,8 +200,15 @@ async function ensureAudio(){
  if(!ctx){
   ctx=new (window.AudioContext||window.webkitAudioContext)();
   master=ctx.createGain();master.gain.value=1;
+  warmthFilter=ctx.createBiquadFilter();warmthFilter.type='lowpass';warmthFilter.frequency.value=6500;warmthFilter.Q.value=0.7;
+  warmDelay=ctx.createDelay(0.2);warmDelay.delayTime.value=0.045;
+  warmFeedback=ctx.createGain();warmFeedback.gain.value=0.16;
+  warmWet=ctx.createGain();warmWet.gain.value=0.14;
+  master.connect(warmthFilter);
+  warmthFilter.connect(warmDelay);warmDelay.connect(warmFeedback);warmFeedback.connect(warmDelay);
+  warmDelay.connect(warmWet);
   analyser=ctx.createAnalyser();analyser.fftSize=1024;
-  master.connect(analyser);analyser.connect(ctx.destination);
+  warmthFilter.connect(analyser);warmWet.connect(analyser);analyser.connect(ctx.destination);
   scopeData=new Uint8Array(analyser.frequencyBinCount);
   ledData=new Uint8Array(analyser.frequencyBinCount);
  }
@@ -264,20 +272,39 @@ function updateMotion(ts){
  const DEBOUNCE_MS=140;
  if(wanted!==motion && ts-candidateSince>DEBOUNCE_MS) motion=wanted;
 }
-const GRAIN_LEN=.24,GRAIN_HOP=.055,GRAIN_FADE=.085,SCHEDULE_AHEAD=.15;
+const GRAIN_LEN=.26,GRAIN_HOP=.055,GRAIN_FADE=.10,SCHEDULE_AHEAD=.15;
 let nextGrainTime=0;
+function equalPowerRamp(g,fromV,toV,startT,endT){
+ // A short curve of points approximating an equal-power (sine) fade instead
+ // of a straight line — linear gain ramps meet at a sharp corner in loudness
+ // that can read as a faint click/edge; the curved fade is smoother and
+ // rounder to the ear, which is most of what "make it sound nicer" means here.
+ const steps=8,pts=new Float32Array(steps+1);
+ for(let i=0;i<=steps;i++){
+  const p=i/steps;
+  const shaped=fromV<toV ? Math.sin(p*Math.PI/2) : Math.cos(p*Math.PI/2);
+  pts[i]=fromV<toV ? fromV+(toV-fromV)*shaped : toV+(fromV-toV)*shaped;
+ }
+ g.gain.setValueCurveAtTime(pts,startT,endT-startT);
+}
 function scheduleGrain(when){
  if(!ctx||!buffers[selected])return;
  const b=buffers[selected];
  const src=ctx.createBufferSource(),g=ctx.createGain();
- src.buffer=b;src.playbackRate.value=1;
- const center=sourcePosition(currentKmh,b);
+ src.buffer=b;
+ // Tiny per-grain jitter (position + pitch) so overlapping grains aren't bit-for-bit
+ // identical — perfectly identical repeats every ~55ms create a metallic, robotic
+ // comb-filtered ring; a touch of natural variation is what makes it sound organic.
+ const jitterSec=(Math.random()-0.5)*0.012;
+ const jitterRate=1+(Math.random()-0.5)*0.012;
+ src.playbackRate.value=jitterRate;
+ const center=sourcePosition(currentKmh,b)+jitterSec;
  const start=clamp(center-GRAIN_LEN*.45,0,Math.max(0,b.duration-GRAIN_LEN));
  const peak=outputGain(currentKmh);
  g.gain.setValueAtTime(0,when);
- g.gain.linearRampToValueAtTime(peak,when+GRAIN_FADE);
+ equalPowerRamp(g,0,peak,when,when+GRAIN_FADE);
  g.gain.setValueAtTime(peak,when+GRAIN_LEN-GRAIN_FADE);
- g.gain.linearRampToValueAtTime(0,when+GRAIN_LEN);
+ equalPowerRamp(g,peak,0,when+GRAIN_LEN-GRAIN_FADE,when+GRAIN_LEN);
  src.connect(g).connect(master);src.start(when,start,GRAIN_LEN);src.stop(when+GRAIN_LEN+.03);
  activeGrains.push({src,g});
  src.onended=()=>{try{src.disconnect();g.disconnect()}catch(e){}activeGrains=activeGrains.filter(x=>x.src!==src)};
@@ -395,19 +422,36 @@ function stop(){
  $('#startBtn').textContent='Start Sound + GPS';$('#startBtn').classList.remove('on');
  $('#gpsDot').classList.remove('live');$('#gpsText').textContent=preview?'Preview standby':'GPS standby';
 }
+function haversineKm(lat1,lon1,lat2,lon2){
+ const R=6371,dLat=(lat2-lat1)*Math.PI/180,dLon=(lon2-lon1)*Math.PI/180;
+ const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+ return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
 function startGPS(){
  if(!navigator.geolocation){$('#gpsText').textContent='GPS not supported';return}
  $('#gpsText').textContent='Requesting GPS…';
- let lastFix=null;
+ let lastFix=null,lastPos=null;
  watchId=navigator.geolocation.watchPosition(p=>{
-  const s=p.coords.speed;targetKmh=(s==null||Number.isNaN(s))?0:clamp(s*3.6,0,APP_MAX);
+  const s=p.coords.speed;
+  const now=performance.now();
+  if(s!=null && !Number.isNaN(s)){
+   // Device reports speed directly — use it.
+   targetKmh=clamp(s*3.6,0,APP_MAX);
+  } else if(lastPos){
+   // Many browsers (iOS Safari in particular) never populate coords.speed,
+   // so it silently stayed null and the app just sat at 0 the whole drive.
+   // Fall back to distance/time between fixes instead.
+   const distKm=haversineKm(lastPos.lat,lastPos.lon,p.coords.latitude,p.coords.longitude);
+   const dtH=(now-lastPos.t)/1000/3600;
+   targetKmh=dtH>0?clamp(distKm/dtH,0,APP_MAX):targetKmh;
+  }
   $('#gpsDot').classList.add('live');$('#gpsText').textContent='GPS live · ±'+Math.round(p.coords.accuracy)+'m';
   $('#gpsAcc').textContent=Math.round(p.coords.accuracy)+' m';
   $('#gpsLat').textContent=p.coords.latitude.toFixed(5);
   $('#gpsLon').textContent=p.coords.longitude.toFixed(5);
-  const now=performance.now();
   if(lastFix)$('#gpsRate').textContent=((now-lastFix)/1000).toFixed(1)+' s';
   lastFix=now;
+  lastPos={lat:p.coords.latitude,lon:p.coords.longitude,t:now};
  },e=>{$('#gpsDot').classList.remove('live');$('#gpsText').textContent=e.code===1?'Location denied':'GPS unavailable'},
  {enableHighAccuracy:true,maximumAge:250,timeout:10000});
 }
