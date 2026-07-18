@@ -43,19 +43,25 @@ let targetKmh=0,currentKmh=0,previewDir=1,lastTs=0,lastTarget=0;
 let motion='accel',candidateMotion='accel',candidateSince=0;
 let ctx=null,master=null,buffers={},grainTimer=null,activeGrains=[];
 
-// Speeds read from the Taycan clip gauge. The source video is in mph;
-// values below are converted to km/hr and preserve the actual acceleration/deceleration curve.
-const TAYCAN_ACCEL=[
- [0.00,0],[1.00,14.5],[2.00,40.2],[3.00,67.6],[4.00,94.9],
- [5.00,120.7],[6.00,148.1],[7.00,173.8],[8.00,197.9]
+// The Taycan speed display in the source clip is mph. Keep the sampled curve
+// in its original unit, convert every point to km/hr, then compress the full
+// source range (0–123 mph / 0–197.95 km/hr) into the app range 0–150 km/hr.
+const MPH_TO_KMH=1.609344;
+const TAYCAN_ACCEL_MPH=[
+ [0.00,0],[1.00,9],[2.00,25],[3.00,42],[4.00,59],
+ [5.00,75],[6.00,92],[7.00,108],[8.00,123]
 ];
-const TAYCAN_DECEL=[
- [8.00,197.9],[9.00,181.9],[10.00,165.8],[11.00,148.1],[12.00,131.9],
- [13.00,115.9],[14.00,98.2],[15.00,82.1],[16.00,66.0],[17.00,48.3],
- [18.00,32.2],[19.00,16.1],[20.00,0]
+const TAYCAN_DECEL_MPH=[
+ [8.00,123],[9.00,113],[10.00,103],[11.00,92],[12.00,82],
+ [13.00,72],[14.00,61],[15.00,51],[16.00,41],[17.00,30],
+ [18.00,20],[19.00,10],[20.00,0]
 ];
+const toKmhCurve=curve=>curve.map(([time,mph])=>[time,mph*MPH_TO_KMH]);
+const TAYCAN_ACCEL=toKmhCurve(TAYCAN_ACCEL_MPH);
+const TAYCAN_DECEL=toKmhCurve(TAYCAN_DECEL_MPH);
 const APP_MAX=150;
-const TAYCAN_CLIP_PEAK=197.9;
+const TAYCAN_CLIP_PEAK_MPH=123;
+const TAYCAN_CLIP_PEAK=TAYCAN_CLIP_PEAK_MPH*MPH_TO_KMH;
 const BMW_PHASE={accel:[0.35,6.75],decel:[6.75,13.85]};
 
 async function ensureAudio(){
@@ -115,7 +121,9 @@ function updateMotion(ts){
  if(delta>.12 || (preview&&previewDir>0)) wanted='accel';
  else if(delta<-.12 || (preview&&previewDir<0)) wanted='decel';
  if(wanted!==candidateMotion){candidateMotion=wanted;candidateSince=ts}
- if(wanted!==motion && ts-candidateSince>180) motion=wanted;
+ // A speed drop must enter the deceleration sound path immediately.
+ if(wanted==='decel' && wanted!==motion) motion='decel';
+ else if(wanted!==motion && ts-candidateSince>90) motion=wanted;
 }
 function spawnGrain(){
  if(!running||!ctx||!buffers[selected])return;
