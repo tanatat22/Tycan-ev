@@ -86,7 +86,8 @@ const TAYCAN_DECEL=toKmhCurve(TAYCAN_DECEL_MPH);
 const APP_MAX=150;
 const TAYCAN_CLIP_PEAK_MPH=123;
 const TAYCAN_CLIP_PEAK=TAYCAN_CLIP_PEAK_MPH*MPH_TO_KMH;
-const BMW_PHASE={accel:[0.35,6.75],decel:[6.75,13.85]};
+// BMW embedded audio is ~11.49s. Keep both branches inside the real buffer.
+const BMW_PHASE={accel:[0.35,5.45],decel:[5.45,11.05]};
 
 async function ensureAudio(){
  if(!ctx){
@@ -140,8 +141,11 @@ function sourcePosition(kmh,buffer){
  const phase=branch==='accel'
   ? clamp(tayTime/8,0,1)
   : clamp((tayTime-8)/12,0,1);
- const [a,b]=BMW_PHASE[branch];
- return clamp(a+(b-a)*phase,.03,buffer.duration-.25);
+ const safeEnd=Math.max(.40,buffer.duration-.34);
+ const nominal=BMW_PHASE[branch];
+ const a=clamp(nominal[0],.08,safeEnd-.35);
+ const b=clamp(nominal[1],a+.20,safeEnd);
+ return clamp(a+(b-a)*phase,.08,safeEnd);
 }
 function outputGain(kmh){
  const n=speedNorm(kmh);
@@ -169,26 +173,32 @@ const grainEnvelope=makeHannEnvelope();
 
 function spawnGrain(){
  if(!running||!ctx||!buffers[selected])return;
- const b=buffers[selected],now=ctx.currentTime+.012;
- // Longer grains + wider overlap avoid hard boundaries without stacking too many layers.
- const grainLen=.56;
+ const b=buffers[selected],now=ctx.currentTime+.015;
+ // About two overlapping grains only. A tiny alternating offset/rate prevents
+ // identical phases from stacking into a metallic comb-filter click.
+ const grainLen=.68;
  const src=ctx.createBufferSource(),g=ctx.createGain();
- src.buffer=b;src.playbackRate.value=1;
+ src.buffer=b;
+ const polarity=(grainSeq++%2===0)?-1:1;
+ src.playbackRate.value=1+polarity*.0018;
  const center=sourcePosition(currentKmh,b);
- const start=clamp(center-grainLen*.50,.02,Math.max(.02,b.duration-grainLen-.02));
+ const microOffset=polarity*.009;
+ const start=clamp(center-grainLen*.50+microOffset,.03,Math.max(.03,b.duration-grainLen-.03));
  const peak=outputGain(currentKmh);
+ const env=new Float32Array(grainEnvelope.length);
+ for(let i=0;i<env.length;i++) env[i]=grainEnvelope[i]*peak;
  g.gain.setValueAtTime(0,now);
- g.gain.setValueCurveAtTime(grainEnvelope.map(v=>v*peak),now,grainLen);
+ g.gain.setValueCurveAtTime(env,now,grainLen);
  src.connect(g).connect(master);
  src.start(now,start,grainLen);
- src.stop(now+grainLen+.04);
+ src.stop(now+grainLen+.05);
  activeGrains.push({src,g});
  src.onended=()=>{try{src.disconnect();g.disconnect()}catch(e){}activeGrains=activeGrains.filter(x=>x.src!==src)};
 }
 function startGrains(){
  stopGrains(false);
  spawnGrain();
- grainTimer=setInterval(spawnGrain,190);
+ grainTimer=setInterval(spawnGrain,330);
 }
 function stopGrains(hard=false){
  if(grainTimer)clearInterval(grainTimer);grainTimer=null;
