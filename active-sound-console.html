@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AS-7 — Active Sound Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg-0:#101215;
+    --bg-1:#181b1f;
+    --panel:#1d2126;
+    --panel-2:#20252b;
+    --line:#2b3038;
+    --line-soft:#24282e;
+    --text-0:#f0ede6;
+    --text-1:#9aa0a8;
+    --text-2:#5b6067;
+    --brass:#e0a458;
+    --brass-dim:#8a6a3f;
+    --brass-hot:#ff8a3d;
+    --scope:#6fe7c9;
+    --scope-dim:#2c5148;
+    --danger:#e05a4e;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0;
+    height:100%;
+    background:
+      radial-gradient(1200px 800px at 20% -10%, #1c2027 0%, transparent 60%),
+      radial-gradient(1000px 700px at 100% 110%, #191c22 0%, transparent 55%),
+      var(--bg-0);
+    color:var(--text-0);
+    font-family:'Space Grotesk', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  .stage{
+    max-width:1040px;
+    margin:0 auto;
+    padding:28px 20px 60px;
+  }
+
+  /* ---------- Header ---------- */
+  .nameplate{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    padding-bottom:18px;
+    border-bottom:1px solid var(--line-soft);
+    margin-bottom:22px;
+    flex-wrap:wrap;
+    gap:14px;
+  }
+  .nameplate-left{display:flex; align-items:center; gap:14px;}
+  .brand-mark{
+    width:42px;height:42px;border-radius:10px;
+    background:linear-gradient(145deg,#2a2f36,#181b1f);
+    border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 4px 10px rgba(0,0,0,.4);
+  }
+  .brand-mark svg{width:20px;height:20px;}
+  .nameplate h1{
+    font-size:20px; font-weight:700; letter-spacing:.04em; margin:0;
+  }
+  .nameplate .sub{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; color:var(--text-2); letter-spacing:.08em; margin-top:2px;
+  }
+  .status-chip{
+    display:flex; align-items:center; gap:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; letter-spacing:.06em;
+    color:var(--text-1);
+    padding:7px 12px;
+    border:1px solid var(--line);
+    border-radius:20px;
+    background:var(--panel);
+  }
+  .status-dot{width:7px;height:7px;border-radius:50%;background:var(--text-2); transition:.25s;}
+  .status-dot.live{background:var(--scope); box-shadow:0 0 8px var(--scope);}
+
+  /* ---------- Main grid ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns: 1.05fr 1fr;
+    gap:16px;
+  }
+  @media (max-width:760px){ .grid{grid-template-columns:1fr;} }
+
+  .panel{
+    background:linear-gradient(180deg,var(--panel-2),var(--panel));
+    border:1px solid var(--line);
+    border-radius:16px;
+    padding:20px;
+    position:relative;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.03), 0 10px 30px rgba(0,0,0,.25);
+  }
+  .panel-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:.12em;
+    color:var(--text-2);
+    text-transform:uppercase;
+    margin-bottom:14px;
+    display:flex; justify-content:space-between;
+  }
+
+  /* ---------- Dial (analog needle + digital arc hybrid) ---------- */
+  .dial-wrap{
+    display:flex; flex-direction:column; align-items:center; gap:10px;
+  }
+  .dial{
+    position:relative;
+    width:250px; height:250px;
+    touch-action:none;
+    cursor:grab;
+  }
+  .dial:active{cursor:grabbing;}
+  .dial svg{position:absolute; inset:0; width:100%; height:100%;}
+  .dial-center{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    pointer-events:none;
+  }
+  .dial-value{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:52px; font-weight:600; color:var(--text-0);
+    line-height:1;
+    letter-spacing:-0.02em;
+  }
+  .dial-unit{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; color:var(--text-2); letter-spacing:.15em; margin-top:6px;
+  }
+  .dial-hint{
+    font-size:11.5px; color:var(--text-2);
+    text-align:center; max-width:220px; line-height:1.5;
+  }
+  .dial-hint b{color:var(--text-1); font-weight:600;}
+
+  .needle{
+    transform-origin: 125px 125px;
+    transition: transform .05s linear;
+  }
+
+  /* ---------- Oscilloscope ---------- */
+  .scope-canvas{
+    width:100%;
+    height:150px;
+    border-radius:10px;
+    background:
+      linear-gradient(180deg, #0c1210, #0a0f0d);
+    border:1px solid var(--line-soft);
+    display:block;
+  }
+  .led-canvas{
+    width:100%;
+    height:64px;
+    margin-top:10px;
+    display:block;
+  }
+
+  /* ---------- Profile tabs ---------- */
+  .profiles{
+    display:flex; gap:8px; margin-top:16px;
+  }
+  .profile-btn{
+    flex:1;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11.5px; letter-spacing:.08em;
+    padding:10px 8px;
+    border-radius:8px;
+    border:1px solid var(--line);
+    background:var(--bg-1);
+    color:var(--text-1);
+    cursor:pointer;
+    transition:.15s;
+    text-transform:uppercase;
+  }
+  .profile-btn:hover{ border-color:var(--brass-dim); color:var(--text-0); }
+  .profile-btn.active{
+    background:linear-gradient(180deg,#33291b,#241d13);
+    border-color:var(--brass);
+    color:var(--brass);
+    box-shadow:0 0 0 1px rgba(224,164,88,.15) inset;
+  }
+
+  /* ---------- Bottom control row ---------- */
+  .controls-row{
+    display:grid;
+    grid-template-columns: 90px 1fr 90px;
+    align-items:center;
+    gap:20px;
+    margin-top:16px;
+  }
+  @media (max-width:760px){ .controls-row{grid-template-columns:1fr; justify-items:center;} }
+
+  .knob-wrap{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .knob{
+    width:64px;height:64px;border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #3a3226, #211a10 70%);
+    border:1px solid var(--line);
+    position:relative;
+    cursor:ns-resize;
+    box-shadow:0 4px 10px rgba(0,0,0,.4), inset 0 1px 1px rgba(255,255,255,.08);
+  }
+  .knob::after{
+    content:"";
+    position:absolute;
+    top:6px; left:50%;
+    width:3px; height:20px;
+    background:var(--brass);
+    border-radius:2px;
+    transform:translateX(-50%);
+    box-shadow:0 0 6px var(--brass);
+  }
+  .knob-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px; letter-spacing:.1em; color:var(--text-2); text-transform:uppercase;
+  }
+  .knob-value{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px; color:var(--text-1);
+  }
+
+  .preview-btn{
+    width:100%;
+    padding:18px 20px;
+    border-radius:12px;
+    border:1px solid var(--brass-dim);
+    background:linear-gradient(180deg,#2a2116,#1c160e);
+    color:var(--brass);
+    font-family:'Space Grotesk', sans-serif;
+    font-weight:600;
+    font-size:15px;
+    letter-spacing:.06em;
+    cursor:pointer;
+    display:flex; align-items:center; justify-content:center; gap:10px;
+    transition:.2s;
+  }
+  .preview-btn:hover{ border-color:var(--brass); }
+  .preview-btn.playing{
+    background:linear-gradient(180deg,#3a2c17,#241a0d);
+    color:var(--brass-hot);
+    border-color:var(--brass-hot);
+    box-shadow:0 0 0 1px rgba(255,138,61,.2) inset, 0 0 24px rgba(255,138,61,.15);
+  }
+  .preview-btn svg{width:16px;height:16px;}
+
+  .slider-wrap{ width:100%; }
+  input[type=range]{
+    -webkit-appearance:none;
+    width:100%;
+    height:4px;
+    border-radius:2px;
+    background:var(--line);
+    outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    width:16px;height:16px;border-radius:50%;
+    background:var(--brass);
+    border:2px solid #1c160e;
+    box-shadow:0 0 6px rgba(224,164,88,.5);
+    cursor:pointer;
+    margin-top:-6px;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:16px;height:16px;border-radius:50%;
+    background:var(--brass); border:2px solid #1c160e; cursor:pointer;
+  }
+
+  .footer-note{
+    margin-top:20px;
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px; color:var(--text-2); letter-spacing:.04em;
+  }
+  .footer-note span b{color:var(--text-1);}
+
+  @media (prefers-reduced-motion: reduce){
+    .needle{transition:none;}
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div class="nameplate">
+    <div class="nameplate-left">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#e0a458" stroke-width="1.6">
+          <path d="M3 12h4l2-6 4 12 2-6h6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div>
+        <h1>AS-7 · Active Sound Console</h1>
+        <div class="sub">SYNTHESIZED DRIVE TONE — MOTOR VOICE FOR A SILENT MACHINE</div>
+      </div>
+    </div>
+    <div class="status-chip"><span class="status-dot" id="statusDot"></span><span id="statusText">ENGINE IDLE</span></div>
+  </div>
+
+  <div class="grid">
+
+    <!-- LEFT: hybrid analog/digital dial -->
+    <div class="panel">
+      <div class="panel-label"><span>SIMULATED SPEED</span><span id="profileTag">COMFORT</span></div>
+      <div class="dial-wrap">
+        <div class="dial" id="dial" role="slider" tabindex="0" aria-label="ความเร็วจำลอง" aria-valuemin="0" aria-valuemax="200" aria-valuenow="0">
+          <svg viewBox="0 0 250 250">
+            <circle cx="125" cy="125" r="105" fill="none" stroke="#24282e" stroke-width="10"/>
+            <circle id="arcBg" cx="125" cy="125" r="105" fill="none" stroke="#2b3038" stroke-width="10"
+              stroke-dasharray="330 660" stroke-dashoffset="0" transform="rotate(135 125 125)" stroke-linecap="round"/>
+            <circle id="arcVal" cx="125" cy="125" r="105" fill="none" stroke="#e0a458" stroke-width="10"
+              stroke-dasharray="0 660" stroke-dashoffset="0" transform="rotate(135 125 125)" stroke-linecap="round"
+              style="transition:stroke .2s;"/>
+            <g class="needle" id="needle">
+              <line x1="125" y1="125" x2="125" y2="40" stroke="#e0a458" stroke-width="3" stroke-linecap="round"/>
+              <circle cx="125" cy="125" r="7" fill="#e0a458"/>
+              <circle cx="125" cy="125" r="3" fill="#1c160e"/>
+            </g>
+          </svg>
+          <div class="dial-center">
+            <div class="dial-value" id="speedReadout">0</div>
+            <div class="dial-unit">KM/H · MOTOR VOICE</div>
+          </div>
+        </div>
+        <div class="dial-hint">ลากวงแหวนเพื่อจำลองความเร็ว — <b>ไม่ใช้ GPS</b>, ทุกอย่างสังเคราะห์สดในเบราว์เซอร์</div>
+      </div>
+
+      <div class="profiles">
+        <button class="profile-btn active" data-profile="comfort">Comfort</button>
+        <button class="profile-btn" data-profile="sport">Sport</button>
+        <button class="profile-btn" data-profile="track">Track</button>
+      </div>
+    </div>
+
+    <!-- RIGHT: live scope + meter -->
+    <div class="panel">
+      <div class="panel-label"><span>LIVE WAVEFORM</span><span id="loadTag">LOAD 20%</span></div>
+      <canvas class="scope-canvas" id="scope"></canvas>
+      <canvas class="led-canvas" id="led"></canvas>
+    </div>
+  </div>
+
+  <!-- Bottom control panel -->
+  <div class="panel" style="margin-top:16px;">
+    <div class="controls-row">
+      <div class="knob-wrap">
+        <div class="knob" id="volKnob" tabindex="0" role="slider" aria-label="ระดับเสียง" aria-valuemin="0" aria-valuemax="100"></div>
+        <div class="knob-label">Volume</div>
+        <div class="knob-value" id="volValue">60</div>
+      </div>
+
+      <button class="preview-btn" id="previewBtn">
+        <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <span id="previewLabel">PREVIEW SOUND</span>
+      </button>
+
+      <div class="knob-wrap">
+        <div class="slider-wrap" style="width:90px;">
+          <input type="range" id="loadSlider" min="0" max="100" value="20">
+        </div>
+        <div class="knob-label">Motor Load</div>
+        <div class="knob-value" id="loadValue">20%</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    <span>AS-7 · <b>Comfort / Sport / Track</b> voicing, generated live via Web Audio</span>
+    <span>NO GPS · NO TELEMETRY · LOCAL SIMULATION ONLY</span>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  // ---------------- State ----------------
+  let speed = 0;          // 0-200 km/h simulated
+  let load = 20;           // 0-100 motor load %
+  let volume = 60;         // 0-100
+  let profile = 'comfort';
+  let playing = false;
+  let audioCtx = null;
+
+  const profiles = {
+    comfort:{ wave:'sine',   drive:0.15, lfoBase:1.1, lfoSpeedMul:0.012, filterBase:500,  filterSpeedMul:9,  pitchMul:1.0, noiseMix:0.10 },
+    sport:  { wave:'sawtooth',drive:0.35, lfoBase:1.8, lfoSpeedMul:0.020, filterBase:800,  filterSpeedMul:14, pitchMul:1.25,noiseMix:0.16 },
+    track:  { wave:'square',  drive:0.55, lfoBase:2.6, lfoSpeedMul:0.028, filterBase:1200, filterSpeedMul:20, pitchMul:1.55,noiseMix:0.22 }
+  };
+
+  // ---------------- DOM refs ----------------
+  const dial = document.getElementById('dial');
+  const needle = document.getElementById('needle');
+  const arcVal = document.getElementById('arcVal');
+  const speedReadout = document.getElementById('speedReadout');
+  const profileTag = document.getElementById('profileTag');
+  const loadTag = document.getElementById('loadTag');
+  const loadSlider = document.getElementById('loadSlider');
+  const loadValue = document.getElementById('loadValue');
+  const volKnob = document.getElementById('volKnob');
+  const volValue = document.getElementById('volValue');
+  const previewBtn = document.getElementById('previewBtn');
+  const previewLabel = document.getElementById('previewLabel');
+  const playIcon = document.getElementById('playIcon');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const scopeCanvas = document.getElementById('scope');
+  const ledCanvas = document.getElementById('led');
+  const profileBtns = document.querySelectorAll('.profile-btn');
+
+  const MAX_SPEED = 200;
+  const ARC_LEN = 330; // matches stroke-dasharray total path portion used
+
+  function setSpeed(v, fromUser){
+    speed = Math.max(0, Math.min(MAX_SPEED, v));
+    const pct = speed / MAX_SPEED;
+    const angle = -135 + pct*270; // -135deg to 135deg
+    needle.setAttribute('transform', `rotate(${angle} 125 125)`);
+    arcVal.setAttribute('stroke-dasharray', `${pct*ARC_LEN} 660`);
+    speedReadout.textContent = Math.round(speed);
+    dial.setAttribute('aria-valuenow', Math.round(speed));
+    // color heats up with speed
+    const hue = 42 - pct*30; // amber -> orange-red
+    arcVal.setAttribute('stroke', `hsl(${hue} 85% ${58-pct*10}%)`);
+    updateSound();
+  }
+
+  function setLoad(v){
+    load = Math.max(0, Math.min(100, v));
+    loadSlider.value = load;
+    loadValue.textContent = Math.round(load) + '%';
+    loadTag.textContent = 'LOAD ' + Math.round(load) + '%';
+    updateSound();
+  }
+
+  function setVolume(v){
+    volume = Math.max(0, Math.min(100, v));
+    volValue.textContent = Math.round(volume);
+    const angle = -135 + (volume/100)*270;
+    volKnob.style.transform = `rotate(${angle}deg)`;
+    updateSound();
+  }
+
+  // ---------------- Dial drag ----------------
+  let dragging = false;
+  function angleFromEvent(e){
+    const rect = dial.getBoundingClientRect();
+    const cx = rect.left + rect.width/2;
+    const cy = rect.top + rect.height/2;
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - cx;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) - cy;
+    let deg = Math.atan2(y, x) * 180/Math.PI; // -180..180, 0 = right
+    deg = deg + 90; // rotate so 0deg = top
+    if(deg > 180) deg -= 360;
+    // map -135..135 => 0..270 range, clamp outside dead zone (bottom 90deg gap) to nearest end
+    let clamped;
+    if(deg < -135) clamped = -135;
+    else if(deg > 135) clamped = 135;
+    else clamped = deg;
+    const pct = (clamped + 135)/270;
+    return pct*MAX_SPEED;
+  }
+  function startDrag(e){ dragging = true; setSpeed(angleFromEvent(e)); e.preventDefault(); }
+  function moveDrag(e){ if(dragging){ setSpeed(angleFromEvent(e)); e.preventDefault(); } }
+  function endDrag(){ dragging = false; }
+  dial.addEventListener('mousedown', startDrag);
+  dial.addEventListener('touchstart', startDrag, {passive:false});
+  window.addEventListener('mousemove', moveDrag);
+  window.addEventListener('touchmove', moveDrag, {passive:false});
+  window.addEventListener('mouseup', endDrag);
+  window.addEventListener('touchend', endDrag);
+  dial.addEventListener('keydown', (e)=>{
+    if(e.key==='ArrowUp'||e.key==='ArrowRight'){ setSpeed(speed+5); e.preventDefault(); }
+    if(e.key==='ArrowDown'||e.key==='ArrowLeft'){ setSpeed(speed-5); e.preventDefault(); }
+  });
+
+  // ---------------- Volume knob drag ----------------
+  let volDragging = false, volStartY = 0, volStartVal = 0;
+  volKnob.addEventListener('mousedown', (e)=>{ volDragging=true; volStartY=e.clientY; volStartVal=volume; });
+  volKnob.addEventListener('touchstart', (e)=>{ volDragging=true; volStartY=e.touches[0].clientY; volStartVal=volume; }, {passive:true});
+  window.addEventListener('mousemove', (e)=>{
+    if(volDragging){ const dy = volStartY - e.clientY; setVolume(volStartVal + dy*0.6); }
+  });
+  window.addEventListener('touchmove', (e)=>{
+    if(volDragging){ const dy = volStartY - e.touches[0].clientY; setVolume(volStartVal + dy*0.6); }
+  }, {passive:true});
+  window.addEventListener('mouseup', ()=> volDragging=false);
+  window.addEventListener('touchend', ()=> volDragging=false);
+  volKnob.addEventListener('keydown', (e)=>{
+    if(e.key==='ArrowUp'){ setVolume(volume+5); }
+    if(e.key==='ArrowDown'){ setVolume(volume-5); }
+  });
+
+  // ---------------- Load slider ----------------
+  loadSlider.addEventListener('input', ()=> setLoad(parseFloat(loadSlider.value)));
+
+  // ---------------- Profile buttons ----------------
+  profileBtns.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      profileBtns.forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      profile = btn.dataset.profile;
+      profileTag.textContent = profile.toUpperCase();
+      applyProfileToNodes();
+    });
+  });
+
+  // ================= AUDIO ENGINE =================
+  let osc1, osc2, noiseSrc, noiseFilter, noiseGain, lfo, lfoGain, mainFilter, driveShaper, driveGain, masterGain, analyser;
+  let scopeData, ledDataArr;
+  let rafId = null;
+
+  function makeDistortionCurve(amount){
+    const n = 1024, curve = new Float32Array(n);
+    const k = amount * 40;
+    for(let i=0;i<n;i++){
+      const x = i*2/n - 1;
+      curve[i] = (1+k)*x/(1+k*Math.abs(x));
+    }
+    return curve;
+  }
+
+  function buildGraph(){
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+
+    osc1 = audioCtx.createOscillator();
+    osc2 = audioCtx.createOscillator();
+    osc1.type = 'sine'; osc2.type='sine';
+    osc1.frequency.value = 55; osc2.frequency.value = 27.5;
+
+    const osc1Gain = audioCtx.createGain(); osc1Gain.gain.value = 0.5;
+    const osc2Gain = audioCtx.createGain(); osc2Gain.gain.value = 0.35;
+
+    // noise
+    const bufferSize = audioCtx.sampleRate * 2;
+    const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = noiseBuffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++) data[i] = Math.random()*2-1;
+    noiseSrc = audioCtx.createBufferSource();
+    noiseSrc.buffer = noiseBuffer; noiseSrc.loop = true;
+    noiseFilter = audioCtx.createBiquadFilter();
+    noiseFilter.type = 'bandpass'; noiseFilter.frequency.value = 600; noiseFilter.Q.value = 0.7;
+    noiseGain = audioCtx.createGain(); noiseGain.gain.value = 0.06;
+
+    // drive / distortion stage
+    driveShaper = audioCtx.createWaveShaper();
+    driveShaper.curve = makeDistortionCurve(0.15);
+    driveGain = audioCtx.createGain(); driveGain.gain.value = 1.0;
+
+    // main tone filter
+    mainFilter = audioCtx.createBiquadFilter();
+    mainFilter.type = 'lowpass';
+    mainFilter.frequency.value = 500;
+    mainFilter.Q.value = 0.9;
+
+    // LFO -> tremolo on master
+    lfo = audioCtx.createOscillator();
+    lfo.type = 'sine'; lfo.frequency.value = 1.1;
+    lfoGain = audioCtx.createGain(); lfoGain.gain.value = 0.12;
+
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.0001;
+
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+
+    // wiring
+    osc1.connect(osc1Gain).connect(mainFilter);
+    osc2.connect(osc2Gain).connect(mainFilter);
+    noiseSrc.connect(noiseFilter).connect(noiseGain).connect(mainFilter);
+    mainFilter.connect(driveShaper).connect(driveGain).connect(masterGain);
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(masterGain.gain);
+
+    masterGain.connect(analyser);
+    analyser.connect(audioCtx.destination);
+
+    osc1.start(); osc2.start(); noiseSrc.start(); lfo.start();
+
+    scopeData = new Uint8Array(analyser.frequencyBinCount);
+    ledDataArr = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  function applyProfileToNodes(){
+    if(!audioCtx) return;
+    const p = profiles[profile];
+    osc1.type = p.wave;
+    osc2.type = p.wave === 'square' ? 'sawtooth' : 'sine';
+    driveShaper.curve = makeDistortionCurve(p.drive + load/100*0.4);
+    updateSound();
+  }
+
+  function updateSound(){
+    if(!audioCtx) return;
+    const p = profiles[profile];
+    const t = audioCtx.currentTime;
+    const spd = speed/MAX_SPEED; // 0..1
+
+    const baseFreq = 32 + spd*70*p.pitchMul + load/100*10;
+    osc1.frequency.setTargetAtTime(baseFreq, t, 0.08);
+    osc2.frequency.setTargetAtTime(baseFreq/2, t, 0.08);
+
+    const cutoff = p.filterBase + spd*p.filterSpeedMul*100 + load/100*300;
+    mainFilter.frequency.setTargetAtTime(cutoff, t, 0.15);
+
+    noiseFilter.frequency.setTargetAtTime(300 + spd*2500, t, 0.15);
+    noiseGain.gain.setTargetAtTime(0.02 + spd*p.noiseMix, t, 0.15);
+
+    const lfoRate = p.lfoBase + spd*p.lfoSpeedMul*100;
+    lfo.frequency.setTargetAtTime(lfoRate, t, 0.2);
+    lfoGain.gain.setTargetAtTime(0.05 + (load/100)*0.18, t, 0.2);
+
+    driveGain.gain.setTargetAtTime(0.8 + load/100*0.6, t, 0.15);
+
+    const targetVol = playing ? (0.02 + spd*0.09 + (volume/100)*0.18) * (volume/100) : 0.0001;
+    masterGain.gain.setTargetAtTime(Math.max(0.0001, targetVol), t, 0.25);
+  }
+
+  // ---------------- Preview toggle ----------------
+  previewBtn.addEventListener('click', async ()=>{
+    if(!audioCtx) buildGraph();
+    if(audioCtx.state === 'suspended') await audioCtx.resume();
+
+    playing = !playing;
+    if(playing){
+      previewBtn.classList.add('playing');
+      previewLabel.textContent = 'STOP';
+      playIcon.innerHTML = '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>';
+      statusDot.classList.add('live');
+      statusText.textContent = 'ENGINE VOICING LIVE';
+      applyProfileToNodes();
+      startVisuals();
+    } else {
+      previewBtn.classList.remove('playing');
+      previewLabel.textContent = 'PREVIEW SOUND';
+      playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+      statusDot.classList.remove('live');
+      statusText.textContent = 'ENGINE IDLE';
+      updateSound();
+    }
+  });
+
+  // ---------------- Visuals ----------------
+  const scopeCtx = scopeCanvas.getContext('2d');
+  const ledCtx = ledCanvas.getContext('2d');
+
+  function fitCanvas(c){
+    const ratio = window.devicePixelRatio || 1;
+    const rect = c.getBoundingClientRect();
+    c.width = rect.width * ratio;
+    c.height = rect.height * ratio;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(ratio,0,0,ratio,0,0);
+  }
+  function resizeAll(){ fitCanvas(scopeCanvas); fitCanvas(ledCanvas); }
+  window.addEventListener('resize', resizeAll);
+  resizeAll();
+
+  function drawIdleScope(){
+    const w = scopeCanvas.clientWidth, h = scopeCanvas.clientHeight;
+    scopeCtx.clearRect(0,0,w,h);
+    scopeCtx.strokeStyle = '#1c2b27';
+    scopeCtx.lineWidth = 1.5;
+    scopeCtx.beginPath();
+    scopeCtx.moveTo(0,h/2); scopeCtx.lineTo(w,h/2);
+    scopeCtx.stroke();
+  }
+  drawIdleScope();
+
+  function drawLedIdle(){
+    const w = ledCanvas.clientWidth, h = ledCanvas.clientHeight;
+    ledCtx.clearRect(0,0,w,h);
+    const bars = 28, gap=4;
+    const bw = (w-(bars-1)*gap)/bars;
+    for(let i=0;i<bars;i++){
+      ledCtx.fillStyle = '#20262a';
+      ledCtx.fillRect(i*(bw+gap), h-6, bw, 6);
+    }
+  }
+  drawLedIdle();
+
+  function startVisuals(){
+    if(rafId) return;
+    function loop(){
+      if(!playing){ rafId=null; drawIdleScope(); drawLedIdle(); return; }
+      rafId = requestAnimationFrame(loop);
+
+      // scope
+      analyser.getByteTimeDomainData(scopeData);
+      const w = scopeCanvas.clientWidth, h = scopeCanvas.clientHeight;
+      scopeCtx.clearRect(0,0,w,h);
+      scopeCtx.lineWidth = 2;
+      scopeCtx.strokeStyle = '#6fe7c9';
+      scopeCtx.shadowColor = '#6fe7c9';
+      scopeCtx.shadowBlur = 6;
+      scopeCtx.beginPath();
+      const slice = w / scopeData.length;
+      for(let i=0;i<scopeData.length;i++){
+        const v = scopeData[i]/128.0;
+        const y = v*h/2;
+        const x = i*slice;
+        if(i===0) scopeCtx.moveTo(x,y); else scopeCtx.lineTo(x,y);
+      }
+      scopeCtx.stroke();
+      scopeCtx.shadowBlur = 0;
+
+      // led bars from frequency data
+      analyser.getByteFrequencyData(ledDataArr);
+      const lw = ledCanvas.clientWidth, lh = ledCanvas.clientHeight;
+      ledCtx.clearRect(0,0,lw,lh);
+      const bars = 28, gap=4;
+      const bw = (lw-(bars-1)*gap)/bars;
+      const step = Math.floor(ledDataArr.length/2/bars);
+      for(let i=0;i<bars;i++){
+        const val = ledDataArr[i*step]/255;
+        const barH = Math.max(3, val*lh);
+        const hue = 42 - val*35;
+        ledCtx.fillStyle = `hsl(${hue} 90% ${55}%)`;
+        ledCtx.fillRect(i*(bw+gap), lh-barH, bw, barH);
+      }
+    }
+    loop();
+  }
+
+  // ---------------- init ----------------
+  setSpeed(0);
+  setLoad(20);
+  setVolume(60);
+})();
+</script>
+</body>
+</html>
