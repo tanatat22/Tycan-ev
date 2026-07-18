@@ -222,11 +222,12 @@
       <div>
         <div class="profile-heading">Active Sound Profile</div>
         <div class="profile-list" id="profileList">
-          <div class="profile-item active" data-profile="comfort"><span class="profile-num">01</span><span class="profile-name">Comfort</span></div>
-          <div class="profile-item" data-profile="standard"><span class="profile-num">02</span><span class="profile-name">Standard</span></div>
-          <div class="profile-item" data-profile="sport"><span class="profile-num">03</span><span class="profile-name">Sport</span></div>
-          <div class="profile-item" data-profile="track"><span class="profile-num">04</span><span class="profile-name">Track</span></div>
-          <div class="profile-item" data-profile="cyber"><span class="profile-num">05</span><span class="profile-name">Cyber</span></div>
+          <div class="profile-item active" data-profile="comfort"><span class="profile-num">01</span><span class="profile-name">Comfort · Clip Match</span></div>
+          <div class="profile-item" data-profile="cyber"><span class="profile-num">02</span><span class="profile-name">BMW-Inspired</span></div>
+          <div class="profile-item" data-profile="taycan"><span class="profile-num">03</span><span class="profile-name">Taycan-Inspired</span></div>
+        </div>
+        <div style="font-family:'IBM Plex Mono', monospace; font-size:9px; color:var(--text-2); margin-top:8px; line-height:1.5;">
+          Comfort is tuned to the measured spectrum of your uploaded clip. BMW-Inspired and Taycan-Inspired are original homages built from analyzing publicly shared reference audio — not reproductions of the actual proprietary recordings.
         </div>
       </div>
       <div class="action-col">
@@ -248,11 +249,9 @@
   let currentAccel = 0; // km/h per second, for telemetry display
 
   const profiles = {
-    comfort:  { wave:'sine', drive:0.05, lfoBase:2.1, lfoSpeedMul:0.006, filterBase:170, filterSpeedMul:2.0, pitchMul:1.0,  noiseMix:0.015, vibHz:2.6, vibDepth:9,  shimmerMix:0.0,  wetMix:0.02 },
-    standard: { wave:'sine', drive:0.07, lfoBase:2.5, lfoSpeedMul:0.008, filterBase:195, filterSpeedMul:2.3, pitchMul:1.07, noiseMix:0.018, vibHz:3.2, vibDepth:11, shimmerMix:0.02, wetMix:0.03 },
-    sport:    { wave:'sine', drive:0.10, lfoBase:2.9, lfoSpeedMul:0.010, filterBase:220, filterSpeedMul:2.6, pitchMul:1.15, noiseMix:0.02,  vibHz:4.0, vibDepth:14, shimmerMix:0.0,  wetMix:0.02 },
-    track:    { wave:'sine', drive:0.18, lfoBase:3.8, lfoSpeedMul:0.014, filterBase:280, filterSpeedMul:3.2, pitchMul:1.3,  noiseMix:0.03,  vibHz:5.4, vibDepth:20, shimmerMix:0.0,  wetMix:0.02 },
-    cyber:    { wave:'sine', drive:0.08, lfoBase:5.5, lfoSpeedMul:0.018, filterBase:240, filterSpeedMul:2.8, pitchMul:1.1,  noiseMix:0.012, vibHz:7.5, vibDepth:24, shimmerMix:0.14, wetMix:0.10 }
+    comfort:  { wave:'sine', drive:0.05, lfoBase:2.1, lfoSpeedMul:0.006, filterBase:170, filterSpeedMul:2.0, pitchMul:1.0,  noiseMix:0.015, vibHz:2.6, vibDepth:9,  shimmerMix:0.0,  wetMix:0.02, base:58,  whineMix:0.0,  whineRange:0    },
+    cyber:    { wave:'sine', drive:0.09, lfoBase:1.6, lfoSpeedMul:0.022, filterBase:320, filterSpeedMul:4.2, pitchMul:1.35, noiseMix:0.008, vibHz:0.9, vibDepth:5,  shimmerMix:0.22, wetMix:0.22, base:58,  whineMix:0.0,  whineRange:0    },
+    taycan:   { wave:'sine', drive:0.14, lfoBase:3.4, lfoSpeedMul:0.020, filterBase:420, filterSpeedMul:5.0, pitchMul:1.2,  noiseMix:0.06,  vibHz:4.6, vibDepth:16, shimmerMix:0.0,  wetMix:0.03, base:100, whineMix:0.16, whineRange:2200 }
   };
 
   // ---------------- DOM refs ----------------
@@ -423,6 +422,7 @@
   // ================= AUDIO ENGINE =================
   let osc1, osc2, noiseSrc, noiseFilter, noiseGain, lfo, lfoGain, pitchLfo, pitchLfoGain, mainFilter, driveShaper, driveGain, masterGain, analyser;
   let shimmerOsc, shimmerFilter, shimmerGain, delayNode, feedbackGain, wetGain;
+  let whineOsc, whineFilter, whineGain;
   let scopeData, ledData;
 
   function makeDistortionCurve(amount){
@@ -474,6 +474,14 @@
     shimmerOsc.connect(shimmerFilter).connect(shimmerGain).connect(mainFilter);
     shimmerOsc.start();
 
+    // "whine" layer — a broadband sweeping tone that rises strongly with speed,
+    // used only by the Taycan-inspired preset to evoke its turbine/sci-fi character
+    whineOsc = audioCtx.createOscillator(); whineOsc.type='sawtooth'; whineOsc.frequency.value=220;
+    whineFilter = audioCtx.createBiquadFilter(); whineFilter.type='bandpass'; whineFilter.frequency.value=600; whineFilter.Q.value=2.2;
+    whineGain = audioCtx.createGain(); whineGain.gain.value=0;
+    whineOsc.connect(whineFilter).connect(whineGain).connect(mainFilter);
+    whineOsc.start();
+
     delayNode = audioCtx.createDelay(1.0); delayNode.delayTime.value=0.30;
     feedbackGain = audioCtx.createGain(); feedbackGain.gain.value=0.34;
     wetGain = audioCtx.createGain(); wetGain.gain.value=0.02;
@@ -494,24 +502,52 @@
     updateSound();
   }
 
+  // Measured anchor bands for the Taycan-inspired preset — loudness/brightness peaks under
+  // hard acceleration/high load and settles at steady higher speed, rather than scaling linearly.
+  const taycanBands = [
+    { spd:0.00, base:105, whineFreq:340, noiseMix:0.030, cutoff:260, loud:0.55 },
+    { spd:0.20, base:100, whineFreq:355, noiseMix:0.045, cutoff:330, loud:0.85 },
+    { spd:0.45, base:88,  whineFreq:400, noiseMix:0.070, cutoff:470, loud:1.00 },
+    { spd:0.70, base:86,  whineFreq:420, noiseMix:0.065, cutoff:430, loud:0.70 },
+    { spd:1.00, base:85,  whineFreq:342, noiseMix:0.035, cutoff:300, loud:0.45 }
+  ];
+  function lerpBands(bands, x, key){
+    for(let i=0;i<bands.length-1;i++){
+      if(x>=bands[i].spd && x<=bands[i+1].spd){
+        const f = (x-bands[i].spd)/(bands[i+1].spd-bands[i].spd);
+        return bands[i][key] + (bands[i+1][key]-bands[i][key])*f;
+      }
+    }
+    return bands[bands.length-1][key];
+  }
+
   function updateSound(){
     if(!audioCtx) return;
     const p = profiles[profile];
     const t = audioCtx.currentTime;
     const spd = speed/MAX_SPEED;
+    const isTaycan = profile==='taycan';
 
-    const baseFreq = 58 + spd*26*p.pitchMul + load/100*8;
+    let baseFreq, cutoff, noiseMixVal, taycanLoud=1;
+    if(isTaycan){
+      baseFreq = lerpBands(taycanBands, spd, 'base') + load/100*6;
+      cutoff = lerpBands(taycanBands, spd, 'cutoff') + load/100*40;
+      noiseMixVal = lerpBands(taycanBands, spd, 'noiseMix');
+      taycanLoud = lerpBands(taycanBands, spd, 'loud');
+    } else {
+      baseFreq = p.base + spd*26*p.pitchMul + load/100*8;
+      cutoff = p.filterBase + spd*p.filterSpeedMul*40 + load/100*60;
+      noiseMixVal = p.noiseMix*0.4 + spd*p.noiseMix;
+    }
     osc1.frequency.setTargetAtTime(baseFreq, t, 0.08);
     osc2.frequency.setTargetAtTime(baseFreq/2, t, 0.08);
-
-    const cutoff = p.filterBase + spd*p.filterSpeedMul*40 + load/100*60;
     mainFilter.frequency.setTargetAtTime(cutoff, t, 0.15);
 
     pitchLfo.frequency.setTargetAtTime(p.vibHz + spd*1.5, t, 0.2);
     pitchLfoGain.gain.setTargetAtTime(p.vibDepth + load/100*6, t, 0.2);
 
     noiseFilter.frequency.setTargetAtTime(120 + spd*200, t, 0.15);
-    noiseGain.gain.setTargetAtTime(p.noiseMix*0.4 + spd*p.noiseMix, t, 0.15);
+    noiseGain.gain.setTargetAtTime(noiseMixVal, t, 0.15);
 
     const lfoRate = p.lfoBase + spd*p.lfoSpeedMul*40;
     lfo.frequency.setTargetAtTime(lfoRate, t, 0.2);
@@ -522,6 +558,18 @@
     shimmerOsc.frequency.setTargetAtTime(baseFreq*1.5, t, 0.1);
     shimmerGain.gain.setTargetAtTime(p.shimmerMix*(0.4+spd*0.6), t, 0.2);
     wetGain.gain.setTargetAtTime(p.wetMix, t, 0.2);
+
+    // whine/turbine sweep — for Taycan, center frequency follows the measured band table directly
+    let whineFreq;
+    if(isTaycan) whineFreq = lerpBands(taycanBands, spd, 'whineFreq');
+    else whineFreq = 220 + spd*p.whineRange;
+    whineOsc.frequency.setTargetAtTime(whineFreq, t, 0.15);
+    whineFilter.frequency.setTargetAtTime(whineFreq, t, 0.15);
+    const accelBoost = Math.max(0, Math.min(1, currentAccel/15));
+    const whineTarget = isTaycan
+      ? p.whineMix*taycanLoud*(0.5+accelBoost*0.5)
+      : p.whineMix*(0.15+spd*0.55+accelBoost*0.4);
+    whineGain.gain.setTargetAtTime(whineTarget, t, 0.15);
 
     const baseVol = playing ? (0.03 + spd*0.05 + (volume/100)*0.16) * (volume/100) : 0.0001;
     const targetVol = muted ? 0.0001 : baseVol;
