@@ -165,6 +165,31 @@ const TAYCAN_CLIP_PEAK_MPH=123;
 const TAYCAN_CLIP_PEAK=TAYCAN_CLIP_PEAK_MPH*MPH_TO_KMH;
 const BMW_PHASE={accel:[0.35,6.75],decel:[6.75,13.85]};
 
+// BMW now gets its own full 0->150->0 curve, independent of Taycan's timeline.
+// We reuse Taycan's curve *shape* (normalized to 0..1 on both axes) since it's
+// just a control curve for how quickly the sound should rise/fall with speed,
+// then rescale it onto BMW's own clip window and the app's full APP_MAX range.
+const TAYCAN_ACCEL_SHAPE=TAYCAN_ACCEL_MPH.map(([t,mph])=>[t/8,mph/TAYCAN_CLIP_PEAK_MPH]);
+const TAYCAN_DECEL_SHAPE=TAYCAN_DECEL_MPH.map(([t,mph])=>[(t-8)/12,mph/TAYCAN_CLIP_PEAK_MPH]);
+function invertNormalized(curve,valueFrac){
+ valueFrac=clamp(valueFrac,0,1);
+ const descending=curve[0][1]>curve[curve.length-1][1];
+ for(let i=0;i<curve.length-1;i++){
+  const [t1,v1]=curve[i],[t2,v2]=curve[i+1];
+  const inside=descending ? valueFrac<=v1&&valueFrac>=v2 : valueFrac>=v1&&valueFrac<=v2;
+  if(inside){const f=(valueFrac-v1)/(v2-v1||1);return t1+(t2-t1)*f}
+ }
+ return descending ? (valueFrac>=curve[0][1]?curve[0][0]:curve.at(-1)[0])
+                   : (valueFrac<=curve[0][1]?curve[0][0]:curve.at(-1)[0]);
+}
+function bmwPositionFor(kmh,branch,buffer){
+ const n=speedNorm(kmh); // 0..1 over the app's full 0-150 range, exactly like Taycan
+ const shape=branch==='decel'?TAYCAN_DECEL_SHAPE:TAYCAN_ACCEL_SHAPE;
+ const frac=invertNormalized(shape,n);
+ const [a,b]=BMW_PHASE[branch];
+ return clamp(a+(b-a)*frac,.03,buffer.duration-.25);
+}
+
 async function ensureAudio(){
  if(!ctx){
   ctx=new (window.AudioContext||window.webkitAudioContext)();
@@ -204,15 +229,11 @@ function taycanTimeFor(kmh,branch){
 }
 function sourcePosition(kmh,buffer){
  const branch=motion;
- const tayTime=taycanTimeFor(kmh,branch);
- if(selected==='taycan') return clamp(tayTime,.03,buffer.duration-.25);
-
- // BMW follows the exact Taycan phase, not raw elapsed time.
- const phase=branch==='accel'
-  ? clamp(tayTime/8,0,1)
-  : clamp((tayTime-8)/12,0,1);
- const [a,b]=BMW_PHASE[branch];
- return clamp(a+(b-a)*phase,.03,buffer.duration-.25);
+ if(selected==='taycan'){
+  const tayTime=taycanTimeFor(kmh,branch);
+  return clamp(tayTime,.03,buffer.duration-.25);
+ }
+ return bmwPositionFor(kmh,branch,buffer);
 }
 function outputGain(kmh){
  const n=speedNorm(kmh);
@@ -237,24 +258,40 @@ function updateMotion(ts){
  const DEBOUNCE_MS=140;
  if(wanted!==motion && ts-candidateSince>DEBOUNCE_MS) motion=wanted;
 }
-function spawnGrain(){
- if(!running||!ctx||!buffers[selected])return;
- const b=buffers[selected],now=ctx.currentTime;
- const grainLen=.24,hop=.055,fade=.085;
+const GRAIN_LEN=.24,GRAIN_HOP=.055,GRAIN_FADE=.085,SCHEDULE_AHEAD=.15;
+let nextGrainTime=0;
+function scheduleGrain(when){
+ if(!ctx||!buffers[selected])return;
+ const b=buffers[selected];
  const src=ctx.createBufferSource(),g=ctx.createGain();
  src.buffer=b;src.playbackRate.value=1;
  const center=sourcePosition(currentKmh,b);
- const start=clamp(center-grainLen*.45,0,Math.max(0,b.duration-grainLen));
+ const start=clamp(center-GRAIN_LEN*.45,0,Math.max(0,b.duration-GRAIN_LEN));
  const peak=outputGain(currentKmh);
- g.gain.setValueAtTime(0,now);
- g.gain.linearRampToValueAtTime(peak,now+fade);
- g.gain.setValueAtTime(peak,now+grainLen-fade);
- g.gain.linearRampToValueAtTime(0,now+grainLen);
- src.connect(g).connect(master);src.start(now,start,grainLen);src.stop(now+grainLen+.03);
+ g.gain.setValueAtTime(0,when);
+ g.gain.linearRampToValueAtTime(peak,when+GRAIN_FADE);
+ g.gain.setValueAtTime(peak,when+GRAIN_LEN-GRAIN_FADE);
+ g.gain.linearRampToValueAtTime(0,when+GRAIN_LEN);
+ src.connect(g).connect(master);src.start(when,start,GRAIN_LEN);src.stop(when+GRAIN_LEN+.03);
  activeGrains.push({src,g});
  src.onended=()=>{try{src.disconnect();g.disconnect()}catch(e){}activeGrains=activeGrains.filter(x=>x.src!==src)};
 }
-function startGrains(){stopGrains();spawnGrain();grainTimer=setInterval(spawnGrain,55)}
+function schedulerTick(){
+ if(!running||!ctx||!buffers[selected])return;
+ // Schedule every grain a little ahead of the audio clock (not the JS clock),
+ // so a busy main thread or a sloppy setInterval firing late never leaves a
+ // silent gap between grains — that gap was the source of the "tak-tak" tick.
+ while(nextGrainTime<ctx.currentTime+SCHEDULE_AHEAD){
+  scheduleGrain(nextGrainTime);
+  nextGrainTime+=GRAIN_HOP;
+ }
+}
+function startGrains(){
+ stopGrains();
+ nextGrainTime=ctx.currentTime+0.02;
+ schedulerTick();
+ grainTimer=setInterval(schedulerTick,25);
+}
 function stopGrains(){
  if(grainTimer)clearInterval(grainTimer);grainTimer=null;
  for(const x of activeGrains){try{x.g.gain.cancelScheduledValues(ctx.currentTime);x.g.gain.setTargetAtTime(0,ctx.currentTime,.015);x.src.stop(ctx.currentTime+.08)}catch(e){}}
