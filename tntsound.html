@@ -63,7 +63,7 @@ const names={taycan:'Taycan Turbo S',bmw:'BMW i4 M50',neon:'Neon Pulse',hyper:'H
 let selected='taycan',running=false,preview=false,muted=false,watchId=null;
 let targetKmh=0,currentKmh=0,previewDir=1,lastTs=0,lastTarget=0;
 let motion='accel',candidateMotion='accel',candidateSince=0;
-let ctx=null,master=null,dcFilter=null,mudCut=null,presenceFilter=null,airShelf=null,toneFilter=null,compressor=null,buffers={},grainTimer=null,activeGrains=[];
+let ctx=null,master=null,dcFilter=null,mudCut=null,presenceFilter=null,airShelf=null,toneFilter=null,compressor=null,buffers={},grainTimer=null,activeGrains=[],grainSeq=0;
 let gpsAccuracy=null,lastLat=null,lastLon=null,lastAccelDisplay=0;
 let prevSpeedForAccel=0,prevTelemetryTs=0,speedHistory=Array(18).fill(0);
 
@@ -218,6 +218,7 @@ function spawnGrain(){
 }
 function startGrains(){
  stopGrains(false);
+ grainSeq=0;
  spawnGrain();
  grainTimer=setInterval(spawnGrain,330);
 }
