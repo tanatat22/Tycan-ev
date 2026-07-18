@@ -47,7 +47,7 @@ body{background:radial-gradient(circle at 50% 12%,#182131 0,#0a1018 40%,#06090f 
       <div class="telePanel"><div class="kpiList"><div class="kpi"><span>Driving Telemetry</span><div class="bar"><i id="kpiDrive" style="--w:0%"></i></div><strong id="teleState">Standby</strong></div><div class="kpi"><span>Motor Load</span><div class="bar"><i id="kpiLoad" style="--w:0%"></i></div><strong id="motorLoadVal">0%</strong></div><div class="kpi"><span>Acceleration</span><div class="bar"><i id="kpiAccel" style="--w:0%"></i></div><strong id="accelVal">0 km/hr/s</strong></div><div class="kpi"><span>Motor Fade</span><div class="bar"><i id="kpiFade" style="--w:0%"></i></div><strong id="fadeVal">0%</strong></div></div></div>
       <div class="geo miniPanel"><div class="geoItem"><div class="label">GPS Accuracy</div><div class="value" id="gpsAccVal">-- m</div></div><div class="geoItem"><div class="label">Preview</div><div class="value" id="previewVal">OFF</div></div><div class="geoItem"><div class="label">Latitude</div><div class="value" id="latVal">--</div></div><div class="geoItem"><div class="label">Longitude</div><div class="value" id="lonVal">--</div></div></div>
     </div>
-    <div class="bottom" style="grid-column:1 / -1;"><div class="modePanel"><div><div class="modeTag">Drive mode</div><div class="modeName" id="driveModeName">STANDBY</div><div class="modeSub" id="driveModeSub">Waiting for GPS or Preview</div></div><div class="switchLine"><div><div class="miniLabel">Preview loop</div><div class="tiny">0 → 150 → 0 km/hr</div></div><div id="previewSwitch" class="switch"></div></div></div><div class="trackPanel"><div class="selectorLabel"><div class="miniLabel">Track</div><div class="tiny">Taycan master mapping</div></div><section class="grid"><div class="card active" data-sound="taycan"><small>01 · TRACK</small><strong>Taycan Turbo S</strong><div class="tiny">Original master curve</div></div><div class="card" data-sound="bmw"><small>02 · TRACK</small><strong>BMW i4 M50</strong><div class="tiny">Follows Taycan up/down</div></div><div class="card" data-sound="hyper"><small>03 · SYNTH</small><strong>Hyperdrive</strong><div class="tiny">Aggressive EV turbine</div></div></section><div class="actions"><button id="startBtn" class="btn primary">Start Sound + GPS</button><button id="stopBtn" class="btn ghost">Stop</button><button id="muteBtn" class="btn mute">🔊</button></div></div></div>
+    <div class="bottom" style="grid-column:1 / -1;"><div class="modePanel"><div><div class="modeTag">Drive mode</div><div class="modeName" id="driveModeName">STANDBY</div><div class="modeSub" id="driveModeSub">Waiting for GPS or Preview</div></div><div class="switchLine"><div><div class="miniLabel">Preview loop</div><div class="tiny">0 → 150 → 0 km/hr</div></div><div id="previewSwitch" class="switch"></div></div><div class="switchLine"><div><div class="miniLabel">E-Shift gears</div><div class="tiny">Simulated shift sound</div></div><div id="eshiftSwitch" class="switch on"></div></div></div><div class="trackPanel"><div class="selectorLabel"><div class="miniLabel">Track</div><div class="tiny">Taycan master mapping</div></div><section class="grid"><div class="card active" data-sound="taycan"><small>01 · TRACK</small><strong>Taycan Turbo S</strong><div class="tiny">Original master curve</div></div><div class="card" data-sound="bmw"><small>02 · TRACK</small><strong>BMW i4 M50</strong><div class="tiny">Follows Taycan up/down</div></div><div class="card" data-sound="hyper"><small>03 · SYNTH</small><strong>Hyperdrive</strong><div class="tiny">Aggressive EV turbine</div></div></section><div class="actions"><button id="startBtn" class="btn primary">Start Sound + GPS</button><button id="stopBtn" class="btn ghost">Stop</button><button id="muteBtn" class="btn mute">🔊</button></div></div></div>
   </section>
   <div class="footerNote">ยึดคลิป Taycan เป็น master · แปลง mph → km/hr · บีบช่วงคลิปเป็น 0–150 km/hr · ลดความเร็วแล้วต้องไล่เสียงต่ำทันที</div>
 </div>
@@ -58,10 +58,10 @@ body{background:radial-gradient(circle at 50% 12%,#182131 0,#0a1018 40%,#06090f 
 const $=s=>document.querySelector(s);
 const audioEls={taycan:$('#taycanAudio'),bmw:$('#bmwAudio'),hyper:$('#hyperAudio')};
 const names={taycan:'Taycan Turbo S',bmw:'BMW i4 M50',hyper:'Hyperdrive'};
-let selected='taycan',running=false,preview=false,muted=false,watchId=null;
+let selected='taycan',running=false,preview=false,muted=false,watchId=null,eShift=true;
 let targetKmh=0,currentKmh=0,previewDir=1,lastTs=0,lastTarget=0;
 let motion='accel',candidateMotion='accel',candidateSince=0,motionRef=0;
-let ctx=null,master=null,dcFilter=null,mudCut=null,presenceFilter=null,airShelf=null,toneFilter=null,compressor=null,buffers={},grainTimer=null,activeGrains=[];
+let ctx=null,master=null,driveBus=null,dcFilter=null,mudCut=null,presenceFilter=null,airShelf=null,toneFilter=null,compressor=null,buffers={},grainTimer=null,activeGrains=[];
 let regenBus=null,regenGain=null,regenFilter=null,regenOsc1=null,regenOsc2=null,regenStarted=false;
 let crawlBus=null,crawlGain=null,crawlFilter=null,crawlOsc1=null,crawlOsc2=null,crawlStarted=false;
 let gpsAccuracy=null,lastLat=null,lastLon=null,lastAccelDisplay=0;
@@ -124,6 +124,10 @@ async function ensureAudio(){
   compressor.attack.value=.018;compressor.release.value=.24;
   master.gain.value=.76;
   master.connect(dcFilter).connect(mudCut).connect(presenceFilter).connect(airShelf).connect(toneFilter).connect(compressor).connect(ctx.destination);
+
+  // Sub-bus for the sampled drive layer only, so an E-Shift upshift can duck
+  // the drive momentarily (torque cut) without affecting mute or the synth beds.
+  driveBus=ctx.createGain();driveBus.gain.value=1;driveBus.connect(master);
 
   // Continuous regenerative-motor layer. It stays silent during acceleration
   // and fades in immediately when speed starts dropping, so lift-off never
@@ -239,13 +243,41 @@ const GRAIN_OVERLAP=4;                    // simultaneous grains (>=2)
 const GRAIN_HOP=GRAIN_LEN/GRAIN_OVERLAP;  // spacing between grain onsets
 let nextGrainTime=0;
 
+// ---- E-Shift: a simulated multi-gear rev laid over the sampled motor. ----
+// Within a gear the playback pitch climbs with speed; crossing a shift speed
+// snaps it back down (upshift) and it climbs again — the ramp-and-reset
+// harmonic signature seen in the Taycan E-Shift reference clip.
+const SHIFT_TOPS=[20,40,64,92,124,APP_MAX]; // upper speed (km/hr) of each gear
+const REV_LO=0.86, REV_HI=1.30;             // grain playbackRate at bottom/top of a gear
+const SHIFT_GUARD=2;                         // km/hr past a shift point before the gear commits
+let eShiftGear=0;                            // committed gear index
+function targetGear(kmh){
+ let lo=0;
+ for(let i=0;i<SHIFT_TOPS.length;i++){
+  const hi=SHIFT_TOPS[i];
+  if(kmh<hi || i===SHIFT_TOPS.length-1) return i;
+  lo=hi;
+ }
+ return 0;
+}
+// Pitch is derived from the COMMITTED gear so a wobble at a shift speed can't
+// flip-flop the rev; the in-gear fraction stays continuous and clamps at the
+// top until the gear actually commits.
+function gearRate(kmh){
+ const lo=eShiftGear===0?0:SHIFT_TOPS[eShiftGear-1];
+ const hi=SHIFT_TOPS[eShiftGear];
+ const frac=clamp((kmh-lo)/Math.max(hi-lo,1),0,1);
+ return REV_LO+(REV_HI-REV_LO)*frac;
+}
+
 function spawnGrainAt(when){
  if(!ctx||!buffers[selected])return;
  const b=buffers[selected];
  const src=ctx.createBufferSource(),g=ctx.createGain();
- src.buffer=b;src.playbackRate.value=1;
+ const rate=eShift?gearRate(currentKmh):1;
+ src.buffer=b;src.playbackRate.value=rate;
  const center=sourcePosition(currentKmh,b);
- const safeMax=Math.max(.04,b.duration-GRAIN_LEN-.04);
+ const safeMax=Math.max(.04,b.duration-GRAIN_LEN*rate-.04);
  const start=clamp(center-GRAIN_LEN*.50,.04,safeMax);
  // Scale each grain so the GRAIN_OVERLAP overlapping Hann windows sum back to
  // the wanted level (two 50%-overlap grains already sum to unity).
@@ -258,7 +290,7 @@ function spawnGrainAt(when){
  }
  g.gain.setValueAtTime(.00001,when);
  g.gain.setValueCurveAtTime(env,when,GRAIN_LEN);
- src.connect(g).connect(master);
+ src.connect(g).connect(driveBus||master);
  src.start(when,start,GRAIN_LEN);
  src.stop(when+GRAIN_LEN+.06);
  activeGrains.push({src,g});
@@ -390,9 +422,27 @@ function render(ts){
  const tau=(targetKmh>currentKmh)?riseTau:fallTau;
  const alpha=1-Math.exp(-dt/tau);
  currentKmh+=(targetKmh-currentKmh)*alpha;
+ // E-Shift: on a gear change, briefly duck the drive bus (torque cut) so the
+ // pitch reset reads as a real shift rather than a slur.
+ if(running&&eShift){
+  const gt=targetGear(currentKmh);
+  if(gt!==eShiftGear){
+   const boundary=SHIFT_TOPS[Math.min(eShiftGear,gt)];
+   if(Math.abs(currentKmh-boundary)>SHIFT_GUARD){
+    const up=gt>eShiftGear; eShiftGear=gt;
+    if(ctx&&driveBus){
+     const t0=ctx.currentTime, cut=up?0.30:0.55;
+     driveBus.gain.cancelScheduledValues(t0);
+     driveBus.gain.setValueAtTime(Math.max(driveBus.gain.value,0.001),t0);
+     driveBus.gain.exponentialRampToValueAtTime(cut,t0+.028);
+     driveBus.gain.exponentialRampToValueAtTime(1,t0+(up?.17:.12));
+    }
+   }
+  }
+ } else if(ctx) { eShiftGear=targetGear(currentKmh); }
  $('#speed').textContent=Math.round(currentKmh);
  $('#gauge').style.setProperty('--angle',(speedNorm(currentKmh)*270)+'deg');
- $('#modeLabel').textContent=(preview?'Preview':'GPS')+' · '+(motion==='accel'?'Accelerating':'Decelerating');
+ $('#modeLabel').textContent=(preview?'Preview':'GPS')+' · '+(motion==='accel'?'Accelerating':'Decelerating')+(eShift&&running?(' · G'+(eShiftGear+1)):'');
  updateLowSpeedMotor();
  updateRegenMotor();
  updateTelemetry(dt,ts);
@@ -400,7 +450,7 @@ function render(ts){
 }
 async function start(){
  try{
-  await ensureAudio();running=true;motion='accel';candidateMotion='accel';motionRef=currentKmh;lastTarget=targetKmh;prevSpeedForAccel=currentKmh;prevTelemetryTs=performance.now();speedHistory=Array(18).fill(currentKmh);
+  await ensureAudio();running=true;motion='accel';candidateMotion='accel';motionRef=currentKmh;eShiftGear=targetGear(currentKmh);if(driveBus&&ctx)driveBus.gain.setValueAtTime(1,ctx.currentTime);lastTarget=targetKmh;prevSpeedForAccel=currentKmh;prevTelemetryTs=performance.now();speedHistory=Array(18).fill(currentKmh);
   startGrains();$('#startBtn').textContent='Stop Sound';$('#startBtn').classList.add('stop');
   if(preview){targetKmh=0;currentKmh=0;previewDir=1;$('#gpsText').textContent='Preview active';$('#gpsDot').classList.add('live')}
   else startGPS();
@@ -436,6 +486,7 @@ $('#previewSwitch').addEventListener('click',()=>{
   if(preview){$('#gpsText').textContent='Preview active';$('#gpsDot').classList.add('live')}else startGPS();
  }
 });
+$('#eshiftSwitch').addEventListener('click',()=>{eShift=!eShift;$('#eshiftSwitch').classList.toggle('on',eShift);if(!eShift&&driveBus&&ctx){driveBus.gain.cancelScheduledValues(ctx.currentTime);driveBus.gain.setTargetAtTime(1,ctx.currentTime,.05)}});
 $('#startBtn').addEventListener('click',()=>running?stop():start());
 $('#stopBtn').addEventListener('click',()=>stop());
 $('#muteBtn').addEventListener('click',()=>{muted=!muted;$('#muteBtn').textContent=muted?'🔇':'🔊';if(master&&ctx)master.gain.setTargetAtTime(muted?0:.72,ctx.currentTime,.09)});
