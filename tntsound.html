@@ -60,7 +60,7 @@ const audioEls={taycan:$('#taycanAudio'),bmw:$('#bmwAudio'),hyper:$('#hyperAudio
 const names={taycan:'Taycan Turbo S',bmw:'BMW i4 M50',hyper:'Hyperdrive'};
 let selected='taycan',running=false,preview=false,muted=false,watchId=null;
 let targetKmh=0,currentKmh=0,previewDir=1,lastTs=0,lastTarget=0;
-let motion='accel',candidateMotion='accel',candidateSince=0;
+let motion='accel',candidateMotion='accel',candidateSince=0,motionRef=0;
 let ctx=null,master=null,dcFilter=null,mudCut=null,presenceFilter=null,airShelf=null,toneFilter=null,compressor=null,buffers={},grainTimer=null,activeGrains=[];
 let regenBus=null,regenGain=null,regenFilter=null,regenOsc1=null,regenOsc2=null,regenStarted=false;
 let crawlBus=null,crawlGain=null,crawlFilter=null,crawlOsc1=null,crawlOsc2=null,crawlStarted=false;
@@ -199,21 +199,29 @@ function sourcePosition(kmh,buffer){
 }
 function outputGain(kmh){
  const n=speedNorm(kmh);
- // Keep a real motor bed during lift-off instead of fading the sample to near
- // silence. Final silence is reached only as the vehicle approaches 0 km/hr.
- const base=motion==='decel' ? (.018+.105*Math.pow(n,.72)) : (.006+.104*Math.pow(n,.86));
+ // Accel sample is audible and climbing from ~1 km/hr onward: a raised low-speed
+ // floor plus a gentler exponent bring the rev up right off the line instead of
+ // only appearing higher up. Decel keeps a motor bed through lift-off; true
+ // silence is reached only as the vehicle approaches 0 km/hr.
+ const base=motion==='decel' ? (.020+.100*Math.pow(n,.72)) : (.013+.099*Math.pow(n,.60));
  return muted?0:base;
 }
-function updateMotion(ts){
- const delta=targetKmh-lastTarget;
- lastTarget=targetKmh;
- let wanted=motion;
- if(delta>.12 || (preview&&previewDir>0)) wanted='accel';
- else if(delta<-.12 || (preview&&previewDir<0)) wanted='decel';
+function updateMotion(ts,dt){
+ // Detect accel vs decel from a slow reference that trails the target speed.
+ // Using the gap (target - reference) instead of raw per-frame jumps gives
+ // built-in hysteresis, so a jittery GPS reading no longer snaps the sound
+ // into the regen/decel path (and back) on every wobble.
+ const k=1-Math.exp(-Math.max(dt,.001)/.45);
+ motionRef+=(targetKmh-motionRef)*k;
+ const gap=targetKmh-motionRef;
+ let wanted=candidateMotion;
+ if(gap>.6 || (preview&&previewDir>0)) wanted='accel';
+ else if(gap<-.6 || (preview&&previewDir<0)) wanted='decel';
+ // Inside the deadband keep the last intent (hysteresis).
  if(wanted!==candidateMotion){candidateMotion=wanted;candidateSince=ts}
- // A speed drop must enter the deceleration sound path immediately.
- if(wanted==='decel' && wanted!==motion) motion='decel';
- else if(wanted!==motion && ts-candidateSince>90) motion=wanted;
+ // Confirm a branch briefly before committing, in BOTH directions, so a
+ // momentary dip on lift-off eases in instead of cracking over instantly.
+ if(wanted!==motion && ts-candidateSince>70) motion=wanted;
 }
 function makeHannEnvelope(size=128){
  const curve=new Float32Array(size);
@@ -319,11 +327,11 @@ function updateRegenMotor(){
  // higher speed. This is a motor/regen whine, not a sudden synthetic beep.
  const f1=105+760*Math.pow(n,.82);
  const f2=f1*2.015;
- regenOsc1.frequency.setTargetAtTime(f1,now,.045);
- regenOsc2.frequency.setTargetAtTime(f2,now,.045);
- regenFilter.frequency.setTargetAtTime(700+2400*n,now,.06);
+ regenOsc1.frequency.setTargetAtTime(f1,now,.06);
+ regenOsc2.frequency.setTargetAtTime(f2,now,.06);
+ regenFilter.frequency.setTargetAtTime(700+2400*n,now,.07);
  const target=isLift ? (.018+.052*Math.pow(n,.7)) : .00001;
- regenGain.gain.setTargetAtTime(target,now,isLift?.055:.10);
+ regenGain.gain.setTargetAtTime(target,now,isLift?.14:.16);
 }
 
 function updateTelemetry(dt,ts){
@@ -372,8 +380,15 @@ function render(ts){
   if(targetKmh>=APP_MAX){targetKmh=APP_MAX;previewDir=-1}
   if(targetKmh<=0){targetKmh=0;previewDir=1}
  }
- updateMotion(ts);
- const alpha=1-Math.exp(-dt/.10);
+ updateMotion(ts,dt);
+ // Ease speed changes, but track quickly at low speed so pulling away from a
+ // crawl has no lag; blend to a smoother constant higher up. Rise stays quicker
+ // than fall so lift-off still glides down.
+ const lowFast=clamp(1-currentKmh/25,0,1);
+ const riseTau=.16-.09*lowFast;   // ~.07 s at a standstill -> .16 s by 25 km/hr
+ const fallTau=.30-.14*lowFast;   // ~.16 s at a standstill -> .30 s by 25 km/hr
+ const tau=(targetKmh>currentKmh)?riseTau:fallTau;
+ const alpha=1-Math.exp(-dt/tau);
  currentKmh+=(targetKmh-currentKmh)*alpha;
  $('#speed').textContent=Math.round(currentKmh);
  $('#gauge').style.setProperty('--angle',(speedNorm(currentKmh)*270)+'deg');
@@ -385,7 +400,7 @@ function render(ts){
 }
 async function start(){
  try{
-  await ensureAudio();running=true;motion='accel';candidateMotion='accel';lastTarget=targetKmh;prevSpeedForAccel=currentKmh;prevTelemetryTs=performance.now();speedHistory=Array(18).fill(currentKmh);
+  await ensureAudio();running=true;motion='accel';candidateMotion='accel';motionRef=currentKmh;lastTarget=targetKmh;prevSpeedForAccel=currentKmh;prevTelemetryTs=performance.now();speedHistory=Array(18).fill(currentKmh);
   startGrains();$('#startBtn').textContent='Stop Sound';$('#startBtn').classList.add('stop');
   if(preview){targetKmh=0;currentKmh=0;previewDir=1;$('#gpsText').textContent='Preview active';$('#gpsDot').classList.add('live')}
   else startGPS();
@@ -417,7 +432,7 @@ $('#previewSwitch').addEventListener('click',()=>{
  preview=!preview;$('#previewSwitch').classList.toggle('on',preview);
  if(running){
   if(watchId!==null)navigator.geolocation.clearWatch(watchId);watchId=null;
-  targetKmh=0;currentKmh=0;previewDir=1;motion='accel';candidateMotion='accel';
+  targetKmh=0;currentKmh=0;previewDir=1;motion='accel';candidateMotion='accel';motionRef=0;
   if(preview){$('#gpsText').textContent='Preview active';$('#gpsDot').classList.add('live')}else startGPS();
  }
 });
